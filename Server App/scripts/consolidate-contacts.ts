@@ -46,6 +46,7 @@ const DB_PATH = process.env.SMS_DB ?? path.join("data", "sms.sqlite");
 
 function normalizeAddress(addr: string): string {
   const trimmed = (addr ?? "").trim();
+  if (/[a-zA-Z]/.test(trimmed)) return trimmed; // alphanumeric sender ID / email — keep verbatim
   const plus = trimmed.startsWith("+") ? "+" : "";
   return plus + trimmed.replace(/[^\d]/g, "");
 }
