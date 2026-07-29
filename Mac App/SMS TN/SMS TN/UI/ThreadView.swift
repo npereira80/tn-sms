@@ -225,6 +225,21 @@ struct MessageBubble: View {
     // Cap bubble width like iMessage rather than letting it span the pane.
     private let maxBubbleWidth: CGFloat = 460
 
+    /// Right-click actions for a message. Copy is only offered when there's text
+    /// (selection + Cmd+C also works on the bubble); Delete removes it locally
+    /// and pushes the removal to the server, which broadcasts it to Android.
+    @ViewBuilder private var messageMenu: some View {
+        if !message.textContent.isEmpty {
+            Button("Copy") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(message.textContent, forType: .string)
+            }
+        }
+        Button("Delete Message", role: .destructive) {
+            model.deleteMessage(message.id)
+        }
+    }
+
     var body: some View {
         HStack {
             if message.isFromMe { Spacer(minLength: 80) }
@@ -234,6 +249,11 @@ struct MessageBubble: View {
                 }
                 if !message.textContent.isEmpty {
                     Text(message.textContent)
+                        // Selectable so you can drag-select part of a message and
+                        // copy it with Cmd+C. The .contextMenu below still shows
+                        // Copy/Delete on right-click (a selectable Text keeps its
+                        // own right-click otherwise, which would hide Delete).
+                        .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 7)
@@ -242,6 +262,7 @@ struct MessageBubble: View {
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                         .frame(maxWidth: maxBubbleWidth,
                                alignment: message.isFromMe ? .trailing : .leading)
+                        .contextMenu { messageMenu }
                 }
                 if !message.decodedReactions.isEmpty {
                     Text(message.decodedReactions.compactMap(\.data?.unicode).joined(separator: " "))
@@ -261,21 +282,9 @@ struct MessageBubble: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            // Right-click a specific message: Copy / Delete. Attached to the
-            // bubble (not the row) so it targets this message. Text selection is
-            // intentionally not enabled — on macOS a selectable Text swallows the
-            // right-click with its own system menu, hiding Delete.
-            .contextMenu {
-                if !message.textContent.isEmpty {
-                    Button("Copy") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(message.textContent, forType: .string)
-                    }
-                }
-                Button("Delete Message", role: .destructive) {
-                    model.deleteMessage(message.id)
-                }
-            }
+            // Right-click anywhere on the bubble (media, status line, padding)
+            // also gets the menu, so media-only messages are deletable too.
+            .contextMenu { messageMenu }
             if !message.isFromMe { Spacer(minLength: 80) }
         }
         .padding(.horizontal, 12)
