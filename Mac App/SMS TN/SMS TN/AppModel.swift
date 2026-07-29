@@ -68,6 +68,10 @@ final class AppModel {
     private var deltaPollTask: Task<Void, Never>?
     private var pendingSendRequests: [String: String] = [:]   // server requestId -> local message id
 
+    // Mac unified inbox: BlueBubbles (iMessage) receive-only polling client.
+    private var bbTask: Task<Void, Never>?
+    private(set) var bbConnected = false
+
     private var eventTask: Task<Void, Never>?
     private var qrRefreshTask: Task<Void, Never>?
     private var conversationObservationTask: Task<Void, Never>?
@@ -101,6 +105,9 @@ final class AppModel {
                 otpCenter.registerNotificationCategory()
             }
 
+            // iMessage via BlueBubbles (if configured in Settings).
+            startBlueBubblesSync()
+
             connectionState = .connecting
             serverTask = Task { await runServerSync(server: server, db: db) }
             // Safety net: the realtime socket delivers read/delete/message events,
@@ -117,6 +124,7 @@ final class AppModel {
     func shutdown() async {
         serverTask?.cancel()
         deltaPollTask?.cancel()
+        bbTask?.cancel()
         server?.close()
         eventTask?.cancel()
         qrRefreshTask?.cancel()
@@ -217,6 +225,58 @@ final class AppModel {
         let ids = deletions.compactMap { $0.messageId }.filter { !$0.isEmpty }
         if !ids.isEmpty { try? await db.deleteMessages(ids: ids) }
         try? await db.deleteEmptyConversations()
+    }
+
+    // MARK: - BlueBubbles (iMessage) sync
+
+    func startBlueBubblesSync() {
+        bbTask?.cancel()
+        guard BBConfig.isConfigured, let db else { bbConnected = false; return }
+        bbTask = Task { await runBlueBubblesSync(db: db) }
+    }
+
+    /// Save + verify BlueBubbles settings, then (re)start sync. Returns false if
+    /// the URL/password don't authenticate (nothing is persisted in that case).
+    func configureBlueBubbles(urlString: String, password: String) async -> Bool {
+        let trimmed = urlString.trimmingCharacters(in: .whitespaces)
+        guard let url = URL(string: trimmed),
+              let client = BlueBubblesClient(config: (url: url, password: password)),
+              await client.ping() else { return false }
+        BBConfig.serverURL = url
+        BBConfig.password = password
+        startBlueBubblesSync()
+        return true
+    }
+
+    /// Poll the BlueBubbles server for iMessage chats + new messages and merge
+    /// them into the store (v1: receive/display, 1:1 chats). Text only for now.
+    private func runBlueBubblesSync(db: AppDatabase) async {
+        while !Task.isCancelled {
+            guard let client = BlueBubblesClient() else { bbConnected = false; return }
+            do {
+                let chats = try await client.chats()
+                bbConnected = true
+                for chat in chats {
+                    if Task.isCancelled { return }
+                    let parts = chat.participants ?? []
+                    guard chat.style == 45 || parts.count == 1,
+                          let addr = parts.first?.address, !addr.isEmpty else { continue }
+                    let convID = BBAddress.normalize(addr)
+                    let key = "bbCursor:\(chat.guid)"
+                    let cursor = Int64((try? await db.kvGet(key)) ?? "") ?? 0
+                    let msgs = try await client.messages(chatGuid: chat.guid, afterMs: cursor)
+                    if msgs.isEmpty { continue }
+                    try await db.applyBBMessages(conversationID: convID, address: addr,
+                                                 displayName: chat.displayName, msgs)
+                    let newest = msgs.map { $0.dateCreated ?? 0 }.max() ?? cursor
+                    if newest > cursor { try? await db.kvSet(key, String(newest)) }
+                }
+            } catch {
+                bbConnected = false
+                log.error("BlueBubbles sync failed: \(error.localizedDescription, privacy: .public)")
+            }
+            try? await Task.sleep(for: .seconds(20))
+        }
     }
 
     // MARK: - Delete (Mac -> server + synced clients; phone keeps its copy)

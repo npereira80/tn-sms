@@ -120,6 +120,12 @@ nonisolated final class AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v3_messageService") { db in
+            try db.alter(table: "message") { t in
+                t.add(column: "service", .text).notNull().defaults(to: "SMS")
+            }
+        }
+
         try migrator.migrate(pool)
     }
 
@@ -298,6 +304,41 @@ nonisolated final class AppDatabase: Sendable {
                         downloadAttempts: 0)
                     try media.save(db)
                 }
+            }
+        }
+    }
+
+    /// Store iMessage messages from the BlueBubbles server into a conversation
+    /// keyed by the participant's normalized address, so they merge with that
+    /// contact's SMS thread. Each row is tagged service="iMessage" for colouring.
+    func applyBBMessages(conversationID convID: String, address: String,
+                         displayName: String?, _ messages: [BBMessage]) async throws {
+        guard !messages.isEmpty else { return }
+        try await pool.write { db in
+            for m in messages {
+                let tsMicros = (m.dateCreated ?? 0) * 1000
+                let isMe = m.isFromMe ?? false
+                var conv = try ConversationRecord.fetchOne(db, key: convID)
+                    ?? ConversationRecord(
+                        id: convID, name: displayName ?? "", lastMessageTimestamp: 0, unread: false,
+                        isGroupChat: false, defaultOutgoingID: address, status: "ACTIVE",
+                        readOnly: false, avatarHexColor: nil, sendMode: nil, type: "iMessage",
+                        pinned: false, snippet: nil, snippetSender: nil,
+                        lastSyncedMessageTimestamp: nil, primaryNumber: address)
+                if conv.primaryNumber == nil { conv.primaryNumber = address }
+                if tsMicros >= conv.lastMessageTimestamp {
+                    conv.lastMessageTimestamp = tsMicros
+                    conv.snippet = m.text
+                    if !isMe { conv.unread = true }
+                }
+                try conv.save(db)
+
+                let rec = MessageRecord(
+                    id: m.guid, conversationID: convID, participantID: isMe ? "me" : address,
+                    timestamp: tsMicros, status: "DELIVERED", textContent: m.text ?? "",
+                    subject: nil, tmpID: nil, isFromMe: isMe, reactionsJSON: nil,
+                    replyToMessageID: nil, pendingSend: false, service: "iMessage")
+                try rec.save(db)
             }
         }
     }

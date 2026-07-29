@@ -291,6 +291,7 @@ struct MessageBubble: View {
 
     private var bubbleBackground: some ShapeStyle {
         if message.isFromMe {
+            if message.isIMessage { return AnyShapeStyle(Theme.sentIMessage) }
             return AnyShapeStyle(isRCS ? Theme.sentRCS : Theme.sentSMS)
         }
         return AnyShapeStyle(Color.gray.opacity(0.2))
@@ -310,7 +311,8 @@ struct MessageBubble: View {
     }
 
     private var statusLine: String {
-        var parts = ["\(dateLabel) \(isRCS ? "RCS" : "SMS")"]
+        let service = message.isIMessage ? "iMessage" : (isRCS ? "RCS" : "SMS")
+        var parts = ["\(dateLabel) \(service)"]
         if message.isFromMe {
             switch message.status {
             case "OUTGOING_SENDING", "OUTGOING_YET_TO_SEND": parts.append("sending…")

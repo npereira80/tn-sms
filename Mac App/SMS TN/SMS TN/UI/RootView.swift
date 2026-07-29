@@ -43,6 +43,7 @@ struct RootView: View {
 
 struct MainSplitView: View {
     @Environment(AppModel.self) private var model
+    @State private var showSettings = false
 
     var body: some View {
         NavigationSplitView {
@@ -55,6 +56,18 @@ struct MainSplitView: View {
                 Text("Select a conversation")
                     .foregroundStyle(.secondary)
             }
+        }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { showSettings = true } label: {
+                    Image(systemName: "gearshape")
+                }
+                .help("iMessage (BlueBubbles) settings")
+            }
+        }
+        .sheet(isPresented: $showSettings) {
+            BBSettingsView()
+                .environment(model)
         }
     }
 }

@@ -24,6 +24,8 @@ nonisolated struct KeychainStore: Sendable {
     static let session = KeychainStore(service: "macDroid.SMS-TN", account: "gmessages-session")
     /// v3: bearer token issued by the self-hosted SMS Sync server.
     static let serverToken = KeychainStore(service: "macDroid.SMS-TN", account: "server-token")
+    /// BlueBubbles server password (Mac unified inbox / iMessage).
+    static let bbPassword = KeychainStore(service: "macDroid.SMS-TN", account: "bb-password")
 
     let service: String
     let account: String

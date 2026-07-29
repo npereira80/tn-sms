@@ -113,10 +113,13 @@ nonisolated struct MessageRecord: Codable, Identifiable, Hashable, Sendable,
     var reactionsJSON: String?
     var replyToMessageID: String?
     var pendingSend: Bool             // optimistic local row awaiting server echo
+    var service: String = "SMS"       // "SMS" | "MMS" | "iMessage" — drives bubble colour
 
     var date: Date {
         Date(timeIntervalSince1970: TimeInterval(timestamp) / 1_000_000)
     }
+
+    var isIMessage: Bool { service == "iMessage" }
 
     var isFailed: Bool { status.hasPrefix("OUTGOING_FAILED") || status == "OUTGOING_CANCELED" }
 
