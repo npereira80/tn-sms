@@ -57,10 +57,13 @@ CREATE TABLE IF NOT EXISTS attachment (
   id         TEXT PRIMARY KEY,
   message_id TEXT NOT NULL REFERENCES message(id) ON DELETE CASCADE,
   mime       TEXT NOT NULL,
-  path       TEXT NOT NULL,
+  path       TEXT NOT NULL,                          -- content-addressed filename (sha256) under data/media
   size       INTEGER NOT NULL DEFAULT 0,
-  sha256     TEXT NOT NULL
+  sha256     TEXT NOT NULL,
+  name       TEXT                                    -- original filename, if any
 );
+CREATE INDEX IF NOT EXISTS idx_attachment_message ON attachment(message_id);
+CREATE INDEX IF NOT EXISTS idx_attachment_sha ON attachment(sha256);
 
 CREATE TABLE IF NOT EXISTS send_request (
   id               TEXT PRIMARY KEY,
@@ -92,4 +95,10 @@ CREATE INDEX IF NOT EXISTS idx_deletion_ts ON deletion(ts);
 const deletionCols = db.prepare(`PRAGMA table_info(deletion)`).all() as { name: string }[];
 if (!deletionCols.some((c) => c.name === "message_id")) {
   db.exec(`ALTER TABLE deletion ADD COLUMN message_id TEXT`);
+}
+
+// Migration: add attachment.name to databases created before it existed.
+const attachmentCols = db.prepare(`PRAGMA table_info(attachment)`).all() as { name: string }[];
+if (attachmentCols.length && !attachmentCols.some((c) => c.name === "name")) {
+  db.exec(`ALTER TABLE attachment ADD COLUMN name TEXT`);
 }

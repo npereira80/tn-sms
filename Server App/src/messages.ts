@@ -3,6 +3,13 @@ import { hub } from "./hub.js";
 import { contentHash, normalizeAddress, now } from "./util.js";
 import { nanoid } from "nanoid";
 
+export interface AttachmentInput {
+  sha256: string;   // content hash of a blob already uploaded via POST /media
+  mime: string;
+  size?: number;
+  name?: string;
+}
+
 export interface IncomingMessage {
   direction: "in" | "out";
   address: string;
@@ -10,6 +17,21 @@ export interface IncomingMessage {
   ts: number;
   type: "sms" | "mms";
   providerId?: string;
+  attachments?: AttachmentInput[];
+}
+
+/** Attachment rows for a set of message ids, grouped by message id. */
+function attachmentsByMessage(messageIds: string[]): Map<string, any[]> {
+  const out = new Map<string, any[]>();
+  if (!messageIds.length) return out;
+  const q = db.prepare(
+    `SELECT id, message_id, mime, size, sha256, name FROM attachment WHERE message_id = ?`,
+  );
+  for (const mid of messageIds) {
+    const rows = q.all(mid) as any[];
+    if (rows.length) out.set(mid, rows);
+  }
+  return out;
 }
 
 /**
@@ -51,6 +73,10 @@ export function ingest(sourceDeviceId: string, items: IncomingMessage[]) {
        (@id, @conversation_id, @direction, @address, @body, @ts, @type, @provider_id,
         @source_device_id, @content_hash, @status, @updated_at)`,
   );
+  const insertAttachment = db.prepare(
+    `INSERT INTO attachment (id, message_id, mime, path, size, sha256, name)
+     VALUES (@id, @message_id, @mime, @path, @size, @sha256, @name)`,
+  );
 
   const accepts: any[] = [];
   const tx = db.transaction((batch: IncomingMessage[]) => {
@@ -87,6 +113,19 @@ export function ingest(sourceDeviceId: string, items: IncomingMessage[]) {
         updated_at: ts,
       };
       insertMsg.run(row);
+
+      const atts = (m.attachments ?? []).map((a) => ({
+        id: nanoid(),
+        message_id: row.id,
+        mime: a.mime,
+        path: a.sha256,
+        size: a.size ?? 0,
+        sha256: a.sha256,
+        name: a.name ?? null,
+      }));
+      for (const a of atts) insertAttachment.run(a);
+      (row as any).attachments = atts.map(({ id, mime, size, sha256, name }) => ({ id, mime, size, sha256, name }));
+
       accepts.push(row);
       accepted++;
     }
@@ -102,7 +141,13 @@ export function ingest(sourceDeviceId: string, items: IncomingMessage[]) {
 export function delta(since: number) {
   const messages = db
     .prepare(`SELECT * FROM message WHERE updated_at > ? ORDER BY updated_at ASC LIMIT 2000`)
-    .all(since);
+    .all(since) as any[];
+  // Attach each message's media metadata so clients can render/download it.
+  const attByMsg = attachmentsByMessage(messages.map((m) => m.id));
+  for (const m of messages) {
+    const rows = attByMsg.get(m.id);
+    if (rows) m.attachments = rows.map(({ id, mime, size, sha256, name }) => ({ id, mime, size, sha256, name }));
+  }
   // Deletion tombstones since the cursor so a polling client removes messages
   // that were hard-deleted elsewhere (they no longer appear in `message`).
   const deletions = db

@@ -30,13 +30,20 @@ export function contentHash(p: {
   body: string;
   ts: number;
   direction: string;
+  attachments?: { sha256: string }[];
 }): string {
   const bucket = Math.round(p.ts / 10000);
-  return sha256([
+  const parts = [
     normalizeAddress(p.address),
     p.type,
     p.direction,
     p.body.trim(),
     String(bucket),
-  ].join("|"));
+  ];
+  // Fold in media identity so two MMS with the same (often empty) text at the
+  // same instant stay distinct. Sorted for order-independence. Text SMS carry
+  // no attachments, so their hash is unchanged (backward compatible).
+  const media = (p.attachments ?? []).map((a) => a.sha256).sort();
+  if (media.length) parts.push(media.join(","));
+  return sha256(parts.join("|"));
 }
