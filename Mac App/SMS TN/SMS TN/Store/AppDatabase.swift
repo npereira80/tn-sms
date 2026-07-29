@@ -363,6 +363,27 @@ nonisolated final class AppDatabase: Sendable {
         }
     }
 
+    /// Count of unread inbound messages for the dock badge. Read state is stored
+    /// per conversation (no per-message flag), so we count inbound messages in
+    /// conversations still flagged unread, from each thread's most recent
+    /// outbound message onward (sending a reply implies you'd seen everything
+    /// before it). A thread you open is marked read, so it drops out entirely.
+    func unreadMessageCount() async throws -> Int {
+        try await pool.read { db in
+            try Int.fetchOne(db, sql: """
+                SELECT COUNT(*)
+                FROM message m
+                JOIN conversation c ON c.id = m.conversationID
+                WHERE c.unread = 1
+                  AND m.isFromMe = 0
+                  AND m.pendingSend = 0
+                  AND m.timestamp > COALESCE(
+                        (SELECT MAX(m2.timestamp) FROM message m2
+                          WHERE m2.conversationID = m.conversationID AND m2.isFromMe = 1), 0)
+                """) ?? 0
+        }
+    }
+
     func latestMessage(conversationID: String) async throws -> MessageRecord? {
         try await pool.read { db in
             try MessageRecord

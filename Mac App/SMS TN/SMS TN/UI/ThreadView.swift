@@ -248,21 +248,20 @@ struct MessageBubble: View {
                     MediaContentView(media: item)
                 }
                 if !message.textContent.isEmpty {
-                    Text(message.textContent)
-                        // Selectable so you can drag-select part of a message and
-                        // copy it with Cmd+C. The .contextMenu below still shows
-                        // Copy/Delete on right-click (a selectable Text keeps its
-                        // own right-click otherwise, which would hide Delete).
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+                    // AppKit-backed so the message text is drag-selectable (Cmd+C)
+                    // AND we can inject "Delete Message" straight into the native
+                    // right-click menu — SwiftUI's Text gives no hook into it.
+                    SelectableTextView(
+                        text: message.textContent,
+                        textColor: message.isFromMe ? .white : .labelColor,
+                        maxWidth: maxBubbleWidth - 24,   // minus the bubble's h-padding
+                        onDelete: { model.deleteMessage(message.id) })
                         .padding(.horizontal, 12)
                         .padding(.vertical, 7)
                         .background(bubbleBackground)
-                        .foregroundStyle(message.isFromMe ? .white : .primary)
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                         .frame(maxWidth: maxBubbleWidth,
                                alignment: message.isFromMe ? .trailing : .leading)
-                        .contextMenu { messageMenu }
                 }
                 if !message.decodedReactions.isEmpty {
                     Text(message.decodedReactions.compactMap(\.data?.unicode).joined(separator: " "))
@@ -403,6 +402,64 @@ struct MediaContentView: View {
         }
         .buttonStyle(.plain)
     }
+}
+
+/// Selectable message text backed by NSTextView. Supports drag-selection and
+/// Cmd+C like normal text, and injects a "Delete Message" item into the native
+/// right-click menu (SwiftUI's `Text` exposes no way to add to that menu).
+/// Auto-sizes to its content up to `maxWidth`. Requires macOS 13+ for
+/// `sizeThatFits`.
+private struct SelectableTextView: NSViewRepresentable {
+    let text: String
+    let textColor: NSColor
+    let maxWidth: CGFloat
+    let onDelete: () -> Void
+
+    private var font: NSFont { .systemFont(ofSize: NSFont.systemFontSize) }
+
+    func makeNSView(context: Context) -> MessageTextView {
+        let tv = MessageTextView()
+        tv.isEditable = false
+        tv.isSelectable = true
+        tv.drawsBackground = false
+        tv.textContainerInset = .zero
+        tv.textContainer?.lineFragmentPadding = 0
+        tv.textContainer?.widthTracksTextView = true
+        tv.isVerticallyResizable = true
+        tv.isHorizontallyResizable = false
+        return tv
+    }
+
+    func updateNSView(_ tv: MessageTextView, context: Context) {
+        tv.onDelete = onDelete
+        tv.textStorage?.setAttributedString(
+            NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: textColor]))
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: MessageTextView, context: Context) -> CGSize? {
+        let width = min(maxWidth, proposal.width ?? maxWidth)
+        let rect = NSAttributedString(string: text, attributes: [.font: font])
+            .boundingRect(with: NSSize(width: width, height: .greatestFiniteMagnitude),
+                          options: [.usesLineFragmentOrigin, .usesFontLeading])
+        return CGSize(width: ceil(rect.width), height: ceil(rect.height))
+    }
+}
+
+/// NSTextView that appends "Delete Message" to the standard selection menu.
+final class MessageTextView: NSTextView {
+    var onDelete: (() -> Void)?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event) ?? NSMenu()
+        menu.addItem(.separator())
+        let item = NSMenuItem(title: "Delete Message",
+                              action: #selector(performDeleteMessage), keyEquivalent: "")
+        item.target = self
+        menu.addItem(item)
+        return menu
+    }
+
+    @objc private func performDeleteMessage() { onDelete?() }
 }
 
 struct TypingIndicatorBubble: View {

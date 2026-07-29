@@ -463,7 +463,7 @@ final class AppModel {
             do {
                 for try await records in observation.values(in: db.pool) {
                     self.conversations = records
-                    self.updateDockBadge()
+                    await self.updateDockBadge()
                 }
             } catch {
                 log.error("Conversation observation failed: \(error.localizedDescription, privacy: .public)")
@@ -471,9 +471,10 @@ final class AppModel {
         }
     }
 
-    /// Red dock badge with the number of unread conversations.
-    private func updateDockBadge() {
-        let count = conversations.filter(\.unread).count
+    /// Red dock badge showing the number of unread messages (empty when zero).
+    private func updateDockBadge() async {
+        guard let db else { NSApp.dockTile.badgeLabel = nil; return }
+        let count = (try? await db.unreadMessageCount()) ?? 0
         NSApp.dockTile.badgeLabel = count > 0 ? String(count) : nil
     }
 
