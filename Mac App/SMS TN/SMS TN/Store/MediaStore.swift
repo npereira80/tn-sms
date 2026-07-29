@@ -13,14 +13,16 @@ import os
 
 actor MediaStore {
     private let db: AppDatabase
-    private let bridge: BridgeClient
+    private let bridge: BridgeClient?
+    private let server: ServerClient?
     private let directory: URL
     private let log = Logger(subsystem: "macDroid.SMS-TN", category: "media")
     private var draining = false
 
-    init(db: AppDatabase, bridge: BridgeClient) throws {
+    init(db: AppDatabase, bridge: BridgeClient? = nil, server: ServerClient? = nil) throws {
         self.db = db
         self.bridge = bridge
+        self.server = server
         directory = try AppDatabase.defaultDirectory()
             .appendingPathComponent("Media", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -47,12 +49,18 @@ actor MediaStore {
             if batch.isEmpty { return }
             for var media in batch {
                 do {
-                    guard let key = media.decryptionKey else {
+                    let data: Data
+                    if let key = media.decryptionKey, let bridge {
+                        // Legacy Google-synced media (encrypted, via the bridge).
+                        data = try await bridge.downloadMedia(mediaID: media.mediaID, keyBase64: key)
+                    } else if let server {
+                        // MMS media from the SMS server: content-addressed, plaintext.
+                        data = try await server.downloadMedia(sha256: media.mediaID)
+                    } else {
                         media.downloadState = MediaRecord.DownloadState.failed.rawValue
                         try await db.updateMedia(media)
                         continue
                     }
-                    let data = try await bridge.downloadMedia(mediaID: media.mediaID, keyBase64: key)
                     let name = sanitizedFileName(for: media)
                     try data.write(to: fileURL(for: name), options: .atomic)
                     media.localFileName = name

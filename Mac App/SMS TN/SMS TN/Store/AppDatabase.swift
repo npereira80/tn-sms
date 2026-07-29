@@ -283,6 +283,21 @@ nonisolated final class AppDatabase: Sendable {
                     subject: nil, tmpID: nil, isFromMe: isMe, reactionsJSON: nil,
                     replyToMessageID: nil, pendingSend: false)
                 try record.save(db)
+
+                // MMS media: one media row per attachment, keyed by content hash.
+                // decryptionKey is nil → MediaStore downloads it from GET /media.
+                for att in m.attachments ?? [] {
+                    if try MediaRecord.fetchOne(db, key: ["messageID": m.id, "mediaID": att.sha256]) != nil {
+                        continue
+                    }
+                    let media = MediaRecord(
+                        messageID: m.id, mediaID: att.sha256, mimeType: att.mime,
+                        fileName: att.name, size: att.size ?? 0, width: 0, height: 0,
+                        decryptionKey: nil, thumbnailMediaID: nil, thumbnailDecryptionKey: nil,
+                        localFileName: nil, downloadState: MediaRecord.DownloadState.pending.rawValue,
+                        downloadAttempts: 0)
+                    try media.save(db)
+                }
             }
         }
     }

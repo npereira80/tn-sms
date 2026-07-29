@@ -92,6 +92,10 @@ final class AppModel {
             let server = ServerClient()
             self.server = server
 
+            // Media store for MMS attachments (downloads blobs from the server's
+            // /media endpoint into the app's Media dir for the thread to render).
+            self.mediaStore = try? MediaStore(db: db, server: server)
+
             Task {
                 await requestNotificationPermission()
                 otpCenter.registerNotificationCategory()
@@ -142,6 +146,7 @@ final class AppModel {
             }
             await applyServerDeletions(delta.deletions ?? [], db: db)
             if delta.cursor > 0 { try? await db.kvSet("serverCursor", String(delta.cursor)) }
+            await mediaStore?.drainQueue()
             syncRunning = false
             connectionState = .connected
         } catch {
@@ -159,6 +164,7 @@ final class AppModel {
                 connectionState = .reconnecting
             case .message(let m):
                 try? await db.applyServerMessages([m])
+                if (m.attachments?.isEmpty == false) { await mediaStore?.drainQueue() }
                 if let updated = m.updatedAt { try? await db.kvSet("serverCursor", String(updated)) }
                 if m.direction == "in" { notifyIfNeededServer(m) }
             case .sendStatus(let requestId, let status):
@@ -192,6 +198,7 @@ final class AppModel {
                     try? await db.applyConversationReadStates(states.map { ($0.id, $0.unread != 0) })
                 }
                 await applyServerDeletions(delta.deletions ?? [], db: db)
+                await mediaStore?.drainQueue()
                 if delta.cursor > since { try? await db.kvSet("serverCursor", String(delta.cursor)) }
             } catch {
                 log.error("Periodic delta refresh failed: \(error.localizedDescription, privacy: .public)")

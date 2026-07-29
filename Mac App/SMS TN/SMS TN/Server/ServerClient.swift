@@ -78,6 +78,18 @@ nonisolated final class ServerClient: @unchecked Sendable {
         return try JSONDecoder().decode(ServerDeltaResponse.self, from: data)
     }
 
+    // MARK: - MMS media
+
+    /// Download a media blob by its server content hash (GET /media/<sha256>).
+    func downloadMedia(sha256: String) async throws -> Data {
+        guard let token else { throw ServerError.notRegistered }
+        var req = URLRequest(url: base.appending(path: "media/\(sha256)"))
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (data, resp) = try await session.data(for: req)
+        try Self.checkOK(resp)
+        return data
+    }
+
     // MARK: - Send
 
     @discardableResult

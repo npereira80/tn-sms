@@ -9,6 +9,15 @@
 
 import Foundation
 
+/// One MMS media part as returned in a message's `attachments` array.
+nonisolated struct ServerAttachment: Codable, Sendable {
+    let id: String?
+    let mime: String
+    let size: Int64?
+    let sha256: String       // content hash; download via GET /media/<sha256>
+    let name: String?
+}
+
 nonisolated struct ServerMessage: Codable, Sendable {
     let id: String
     let conversationId: String
@@ -19,9 +28,10 @@ nonisolated struct ServerMessage: Codable, Sendable {
     let type: String             // "sms" | "mms"
     let status: String?
     let updatedAt: Int64?        // server change cursor
+    let attachments: [ServerAttachment]?
 
     enum CodingKeys: String, CodingKey {
-        case id, direction, address, body, ts, type, status
+        case id, direction, address, body, ts, type, status, attachments
         case conversationId = "conversation_id"
         case updatedAt = "updated_at"
     }
