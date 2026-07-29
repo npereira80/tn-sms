@@ -129,11 +129,15 @@ app.get("/media/:hash", auth, (req, res) => {
   fs.createReadStream(mediaPath(hash)).pipe(res);
 });
 
-const sendBody = z.object({ to: z.string(), body: z.string() });
+const sendBody = z.object({
+  to: z.string(),
+  body: z.string().default(""),
+  attachments: z.array(attachmentSchema).optional(),
+});
 app.post("/send", auth, (req: AuthedRequest, res) => {
   const p = sendBody.safeParse(req.body);
   if (!p.success) return res.status(400).json({ error: p.error.message });
-  res.json(enqueueSend(req.device!.id, p.data.to, p.data.body));
+  res.json(enqueueSend(req.device!.id, p.data.to, p.data.body, p.data.attachments ?? []));
 });
 
 // ---- WebSocket ----------------------------------------------------------

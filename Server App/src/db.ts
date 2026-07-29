@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS send_request (
   requested_by     TEXT NOT NULL,
   target_device_id TEXT,
   status           TEXT NOT NULL DEFAULT 'queued',    -- queued | sent | delivered | failed
+  attachments_json TEXT,                              -- JSON [{sha256,mime,name}] for a relayed MMS
   created_at       INTEGER NOT NULL,
   updated_at       INTEGER NOT NULL
 );
@@ -101,4 +102,10 @@ if (!deletionCols.some((c) => c.name === "message_id")) {
 const attachmentCols = db.prepare(`PRAGMA table_info(attachment)`).all() as { name: string }[];
 if (attachmentCols.length && !attachmentCols.some((c) => c.name === "name")) {
   db.exec(`ALTER TABLE attachment ADD COLUMN name TEXT`);
+}
+
+// Migration: add send_request.attachments_json for relayed MMS.
+const sendCols = db.prepare(`PRAGMA table_info(send_request)`).all() as { name: string }[];
+if (sendCols.length && !sendCols.some((c) => c.name === "attachments_json")) {
+  db.exec(`ALTER TABLE send_request ADD COLUMN attachments_json TEXT`);
 }
