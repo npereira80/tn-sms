@@ -261,6 +261,14 @@ nonisolated final class AppDatabase: Sendable {
                 let tsMicros = m.ts * 1000
                 let isMe = (m.direction == "out")
 
+                // An iPhone tapback arrives as an inbound SMS ("Liked "…"").
+                // Apply it as a reaction on the quoted message and don't insert
+                // a junk text bubble.
+                if !isMe, m.type == "sms", let tap = SmsTapback.parse(m.body) {
+                    try applyTapback(db, conversationID: convID, tap: tap)
+                    continue
+                }
+
                 var conv = try ConversationRecord.fetchOne(db, key: convID)
                     ?? ConversationRecord(
                         id: convID, name: "", lastMessageTimestamp: 0, unread: false,
@@ -300,6 +308,33 @@ nonisolated final class AppDatabase: Sendable {
                 }
             }
         }
+    }
+
+    /// Apply an SMS tapback to the most recent message it quotes in the thread
+    /// (adds/removes the emoji in that message's reactions).
+    private func applyTapback(_ db: Database, conversationID: String, tap: SmsTapback.Result) throws {
+        let recent = try MessageRecord
+            .filter(Column("conversationID") == conversationID)
+            .order(Column("timestamp").desc)
+            .limit(50)
+            .fetchAll(db)
+        guard var target = recent.first(where: {
+            SmsTapback.matches(candidate: $0.textContent, quoted: tap.quoted)
+        }) else { return }
+
+        var entries = target.decodedReactions
+        let has = entries.contains { $0.data?.unicode == tap.emoji }
+        if tap.removal {
+            entries.removeAll { $0.data?.unicode == tap.emoji }
+        } else if !has {
+            entries.append(PJReactionEntry(data: PJReactionData(unicode: tap.emoji, type: nil),
+                                           participantIDs: nil))
+        } else {
+            return // already present, nothing to do
+        }
+        let json = (try? JSONEncoder().encode(entries)).flatMap { String(data: $0, encoding: .utf8) }
+        target.reactionsJSON = entries.isEmpty ? nil : json
+        try target.save(db)
     }
 
     /// Applies server read state to local conversations (phone → Mac read sync).
