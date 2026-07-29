@@ -234,7 +234,6 @@ struct MessageBubble: View {
                 }
                 if !message.textContent.isEmpty {
                     Text(message.textContent)
-                        .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 7)
@@ -262,18 +261,24 @@ struct MessageBubble: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            // Right-click a specific message: Copy / Delete. Attached to the
+            // bubble (not the row) so it targets this message. Text selection is
+            // intentionally not enabled — on macOS a selectable Text swallows the
+            // right-click with its own system menu, hiding Delete.
+            .contextMenu {
+                if !message.textContent.isEmpty {
+                    Button("Copy") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(message.textContent, forType: .string)
+                    }
+                }
+                Button("Delete Message", role: .destructive) {
+                    model.deleteMessage(message.id)
+                }
+            }
             if !message.isFromMe { Spacer(minLength: 80) }
         }
         .padding(.horizontal, 12)
-        .contextMenu {
-            Button("Copy") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(message.textContent, forType: .string)
-            }
-            Button("Delete Message", role: .destructive) {
-                model.deleteMessage(message.id)
-            }
-        }
     }
 
     private var bubbleBackground: some ShapeStyle {
