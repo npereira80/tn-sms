@@ -1,0 +1,48 @@
+# ---- macOS ----
+.DS_Store
+
+# ---- Secrets ----
+# Real secrets live only in local .env files (never committed).
+.env
+*.env
+!*.env.example
+
+# ---- Node / SMS Sync Server (Server App) ----
+node_modules/
+dist/
+data/
+*.log
+
+# ---- Go / GmBridge ----
+# Generated xcframework (56 MB). Rebuild with Mac App/Scripts/build-gmbridge.sh
+# (requires Go 1.25+). See that script for the pinned protocol commit.
+GmBridge/build/
+
+# ---- Xcode / Swift (Mac App) ----
+## Build generated
+build/
+DerivedData/
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+
+## User settings
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+
+## Swift Package Manager
+.build/
+Packages/
+Package.resolved
+
+## CocoaPods / Carthage (if ever used)
+Pods/
+Carthage/Build/

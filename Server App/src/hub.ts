@@ -1,0 +1,52 @@
+import type { WebSocket } from "ws";
+
+/**
+ * In-memory registry of live WebSocket connections keyed by device id.
+ * Used to push realtime events to clients and dispatch send-commands to
+ * the primary Android agent.
+ */
+class Hub {
+  private sockets = new Map<string, Set<WebSocket>>();
+
+  add(deviceId: string, ws: WebSocket) {
+    let set = this.sockets.get(deviceId);
+    if (!set) this.sockets.set(deviceId, (set = new Set()));
+    set.add(ws);
+    ws.on("close", () => set!.delete(ws));
+  }
+
+  /** Send to every connection of one device. Returns true if delivered. */
+  toDevice(deviceId: string, event: unknown): boolean {
+    const set = this.sockets.get(deviceId);
+    if (!set || set.size === 0) return false;
+    const payload = JSON.stringify(event);
+    for (const ws of set) safeSend(ws, payload);
+    return true;
+  }
+
+  /**
+   * Fan-out to all connected clients (e.g. new inbound message, primary change).
+   * `exceptDeviceId` skips the device that triggered the change so it never
+   * receives the echo of its own action (it already applied it locally).
+   */
+  broadcast(event: unknown, exceptDeviceId?: string) {
+    const payload = JSON.stringify(event);
+    for (const [deviceId, set] of this.sockets) {
+      if (exceptDeviceId && deviceId === exceptDeviceId) continue;
+      for (const ws of set) safeSend(ws, payload);
+    }
+  }
+
+  isOnline(deviceId: string): boolean {
+    const set = this.sockets.get(deviceId);
+    return !!set && set.size > 0;
+  }
+}
+
+function safeSend(ws: WebSocket, payload: string) {
+  if (ws.readyState === ws.OPEN) {
+    try { ws.send(payload); } catch { /* dropped socket */ }
+  }
+}
+
+export const hub = new Hub();
