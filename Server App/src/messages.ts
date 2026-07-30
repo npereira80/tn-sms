@@ -273,7 +273,6 @@ export function deleteItems(input: {
     }
   });
   tx();
-  console.log(`SMS[diag] delete applied: deleted=${deleted} ids=${input.messageIds?.length ?? 0} hashes=${input.messageHashes?.length ?? 0} conv=${input.conversationId ?? "-"}`);
   return { deleted };
 }
 
@@ -295,12 +294,8 @@ export function applyReadUpdates(updates: { address: string; unread: boolean }[]
   const tx = db.transaction(() => {
     for (const u of updates) {
       const id = normalizeAddress(u.address);
-      if (!id) { console.log("SMS[diag] read skipped: empty conversation id"); continue; }
-      const info = upd.run({ id, unread: u.unread ? 1 : 0 });
-      // SMS[diag]: `matched=0` on an UPDATE would mean the read never landed on a
-      // real conversation (address-normalization mismatch). With the upsert this
-      // should never be 0; the log confirms reads are persisting server-side.
-      console.log(`SMS[diag] read applied: id=${id} unread=${u.unread} changes=${info.changes}`);
+      if (!id) continue;
+      upd.run({ id, unread: u.unread ? 1 : 0 });
       hub.broadcast({ type: "conversation_read", conversationId: id, unread: u.unread }, actingDeviceId);
     }
   });
