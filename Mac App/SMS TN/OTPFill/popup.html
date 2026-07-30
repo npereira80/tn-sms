@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="popup.css">
+  <title>SMS TN OTP Fill</title>
+</head>
+<body>
+  <main id="root">
+    <div id="loading" class="state">
+      <div class="spinner" aria-hidden="true"></div>
+      <p class="muted">Checking for a code…</p>
+    </div>
+
+    <div id="has-code" class="state hidden">
+      <p class="label">One-time code</p>
+      <p id="code" class="code" aria-live="polite">------</p>
+      <p id="sender" class="muted"></p>
+      <div class="actions">
+        <button id="fill" class="primary">Fill on this page</button>
+        <button id="copy" class="secondary">Copy</button>
+      </div>
+      <p id="status" class="status" role="status"></p>
+    </div>
+
+    <div id="no-code" class="state hidden">
+      <p class="label">No recent code</p>
+      <p class="muted">Codes appear here for 3 minutes after they arrive in SMS TN.</p>
+    </div>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

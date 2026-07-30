@@ -75,6 +75,13 @@ final class OTPCenter {
     static let notificationCategoryID = "OTP_CODE"
     static let copyActionID = "COPY_OTP"
 
+    // Shared App Group container read by the Safari extension's native handler.
+    // We publish only the freshest unexpired code; the handler re-checks the
+    // lifetime, and we clear the slot when nothing is live.
+    static let appGroupID = "group.macDroid.SMS-TN"
+    private static let sharedOTPKey = "latestOTP"
+    private let sharedDefaults = UserDefaults(suiteName: OTPCenter.appGroupID)
+
     func registerNotificationCategory() {
         let copy = UNNotificationAction(identifier: Self.copyActionID,
                                         title: "Copy Code",
@@ -94,7 +101,28 @@ final class OTPCenter {
         active.removeAll { $0.code == code || $0.isExpired }
         active.append(detection)
         scheduleExpiry()
+        publishSharedLatest()
         postNotification(for: detection)
+    }
+
+    /// Writes the newest unexpired code to the App Group so the Safari extension
+    /// can offer it; clears the slot when nothing is live.
+    private func publishSharedLatest() {
+        guard let sharedDefaults else { return }
+        let live = active.filter { !$0.isExpired }.max(by: { $0.detectedAt < $1.detectedAt })
+        guard let latest = live else {
+            sharedDefaults.removeObject(forKey: Self.sharedOTPKey)
+            return
+        }
+        let payload: [String: Any] = [
+            "code": latest.code,
+            "sender": latest.sender,
+            "ts": latest.detectedAt.timeIntervalSince1970,
+        ]
+        if let data = try? JSONSerialization.data(withJSONObject: payload),
+           let json = String(data: data, encoding: .utf8) {
+            sharedDefaults.set(json, forKey: Self.sharedOTPKey)
+        }
     }
 
     func copyToClipboard(_ detection: OTPDetection) {
@@ -114,6 +142,7 @@ final class OTPCenter {
             try? await Task.sleep(for: .seconds(OTPDetector.codeLifetime))
             guard let self, !Task.isCancelled else { return }
             self.active.removeAll(where: \.isExpired)
+            self.publishSharedLatest()
         }
     }
 
