@@ -21,12 +21,29 @@ Safari toolbar click ─► popup.js ─► sendNativeMessage
                           fills an OTP-only field, dispatches input/change
 ```
 
-- **Fill UX:** toolbar popover (click the icon → Fill / Copy). No auto-insertion.
-- **Field scope:** OTP-style fields only (`autocomplete="one-time-code"`,
-  numeric single-char groups, and name/id/aria/placeholder hints like otp, code,
-  pin, verification). Segmented 6-box inputs are supported.
-- **Permissions:** `activeTab` + `scripting` (temporary access to the current tab
-  only when you click Fill) and `nativeMessaging`. No broad host access.
+- **Fill UX:** automatic. A content script fills a strong OTP field as soon as a
+  code is available (and the field is empty), filling each code once. The
+  toolbar popover's **Fill on this page** button is a manual force/retry with
+  looser matching (it can overwrite and use the focused field).
+- **Field scope:** OTP-style fields (`autocomplete="one-time-code"`, numeric
+  single-char groups, name/id/aria/placeholder/label/nearby-text hints like otp,
+  code, código, pin, token, sms, verificação). Auto-fill requires a strong match
+  and never overwrites a field you've typed in; password inputs qualify only
+  with an OTP signal.
+- **Permissions:** `scripting` + `nativeMessaging`, plus host access
+  (`http/https`) for the content script that does the automatic fill. Safari
+  will ask you to allow the extension **on every website** — this is required
+  for auto-fill. `activeTab` covers the manual button.
+
+## How the pieces talk
+
+- `background.js` (service worker) relays `otp-getcode` messages from the content
+  script to the native handler (content scripts can't call native directly).
+- `content.js` detects a strong OTP field, asks the app for the current code, and
+  fills it — polling briefly so a code that arrives *after* the page loads still
+  lands, and watching for fields added dynamically.
+- `otp-fill.js` is the shared matcher/filler used by both the content script
+  (strict/auto) and the popup (loose/manual force).
 
 ## Files
 
