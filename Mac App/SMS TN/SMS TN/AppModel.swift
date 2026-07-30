@@ -175,7 +175,10 @@ final class AppModel {
                 try? await db.applyServerMessages([m])
                 if (m.attachments?.isEmpty == false) { await mediaStore?.drainQueue() }
                 if let updated = m.updatedAt { try? await db.kvSet("serverCursor", String(updated)) }
-                if m.direction == "in" { notifyIfNeededServer(m) }
+                if m.direction == "in" {
+                    notifyIfNeededServer(m)
+                    await updateDockBadge()
+                }
             case .sendStatus(let requestId, let status):
                 await handleServerSendStatus(requestId: requestId, status: status)
             case .conversationRead(let conversationId, let unread):
@@ -555,10 +558,13 @@ final class AppModel {
     }
 
     /// Red dock badge showing the number of unread messages (empty when zero).
+    /// Setting `badgeLabel` alone does not always repaint the dock tile, so we
+    /// force a redraw with `display()`.
     private func updateDockBadge() async {
-        guard let db else { NSApp.dockTile.badgeLabel = nil; return }
-        let count = (try? await db.unreadMessageCount()) ?? 0
-        NSApp.dockTile.badgeLabel = count > 0 ? String(count) : nil
+        let count = (try? await db?.unreadMessageCount()) ?? 0
+        let tile = NSApp.dockTile
+        tile.badgeLabel = count > 0 ? String(count) : nil
+        tile.display()
     }
 
     func selectConversation(_ id: String?) {
