@@ -29,6 +29,12 @@ struct SMS_TNApp: App {
                 }
         }
         .commands {
+            CommandGroup(after: .newItem) {
+                Button("Mark All Messages as Read") {
+                    model.markAllRead()
+                }
+                .disabled(model.phase != .ready)
+            }
             CommandGroup(after: .appSettings) {
                 Button("iMessage (BlueBubbles) Settings…") {
                     model.showBBSettings = true

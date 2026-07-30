@@ -332,15 +332,26 @@ struct MediaContentView: View {
 
     private let maxSide: CGFloat = 320
 
+    /// Fit [size] within max×max without upscaling.
+    private func fittedSize(for size: CGSize, max: CGFloat) -> CGSize {
+        guard size.width > 0, size.height > 0 else { return CGSize(width: max, height: max) }
+        let scale = Swift.min(max / size.width, max / size.height, 1)
+        return CGSize(width: size.width * scale, height: size.height * scale)
+    }
+
     var body: some View {
         Group {
             if let url = localURL {
                 if media.isImage, let image = NSImage(contentsOf: url) {
+                    // Size the frame to the image's actual fitted dimensions so the
+                    // rounded clip hugs the photo (a maxWidth/maxHeight frame leaves
+                    // a transparent letterbox and the corners look square).
+                    let fitted = fittedSize(for: image.size, max: maxSide)
                     Image(nsImage: image)
                         .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: maxSide, maxHeight: maxSide)
+                        .frame(width: fitted.width, height: fitted.height)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .contentShape(RoundedRectangle(cornerRadius: 12))
                         .onTapGesture { NSWorkspace.shared.open(url) }
                 } else if media.isVideo || media.isAudio {
                     VideoPlayer(player: AVPlayer(url: url))

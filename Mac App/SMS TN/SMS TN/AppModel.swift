@@ -280,6 +280,21 @@ final class AppModel {
         }
     }
 
+    /// Mark every conversation read locally and push the read-state to the server
+    /// so the phone and other devices reflect it (File → Mark All Messages as Read).
+    func markAllRead() {
+        guard let db, let server else { return }
+        let ids = conversations.filter(\.unread).map(\.id)
+        Task {
+            try? await db.pool.write { dbConn in
+                try dbConn.execute(sql: "UPDATE conversation SET unread = 0")
+            }
+            for id in ids {
+                try? await server.markRead(address: id, unread: false)
+            }
+        }
+    }
+
     // MARK: - Delete (Mac -> server + synced clients; phone keeps its copy)
 
     func deleteMessage(_ messageID: String) {
