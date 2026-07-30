@@ -43,10 +43,10 @@ struct RootView: View {
 
 struct MainSplitView: View {
     @Environment(AppModel.self) private var model
-    @State private var showSettings = false
 
     var body: some View {
-        NavigationSplitView {
+        @Bindable var model = model
+        return NavigationSplitView {
             ConversationListView()
                 .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 380)
         } detail: {
@@ -59,13 +59,13 @@ struct MainSplitView: View {
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button { showSettings = true } label: {
+                Button { model.showBBSettings = true } label: {
                     Image(systemName: "gearshape")
                 }
                 .help("iMessage (BlueBubbles) settings")
             }
         }
-        .sheet(isPresented: $showSettings) {
+        .sheet(isPresented: $model.showBBSettings) {
             BBSettingsView()
                 .environment(model)
         }

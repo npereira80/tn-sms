@@ -30,6 +30,13 @@ struct SMS_TNApp: App {
         }
         .commands {
             CommandGroup(after: .appSettings) {
+                Button("iMessage (BlueBubbles) Settings…") {
+                    model.showBBSettings = true
+                }
+                .disabled(model.phase != .ready)
+
+                Divider()
+
                 Button("Verify Full Sync") {
                     model.runDeepVerify()
                 }

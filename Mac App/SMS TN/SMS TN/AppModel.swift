@@ -71,6 +71,7 @@ final class AppModel {
     // Mac unified inbox: BlueBubbles (iMessage) receive-only polling client.
     private var bbTask: Task<Void, Never>?
     private(set) var bbConnected = false
+    var showBBSettings = false   // drives the settings sheet (toolbar button + menu command)
 
     private var eventTask: Task<Void, Never>?
     private var qrRefreshTask: Task<Void, Never>?
