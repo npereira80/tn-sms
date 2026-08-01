@@ -1,0 +1,91 @@
+package com.ikuteam.tnwatch.net
+
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+// ---- SMS sync server ------------------------------------------------------
+
+@Serializable
+data class RegisterResponse(val token: String? = null, val id: String? = null)
+
+@Serializable
+data class SyncAttachment(
+    val id: String? = null,
+    val mime: String = "application/octet-stream",
+    val size: Long? = null,
+    val sha256: String = "",
+    val name: String? = null,
+)
+
+@Serializable
+data class SyncMessage(
+    val id: String = "",
+    @SerialName("conversation_id") val conversationId: String = "",
+    val direction: String = "in", // "in" | "out"
+    val address: String = "",
+    val body: String = "",
+    val ts: Long = 0,
+    val type: String = "sms", // "sms" | "mms"
+    val status: String? = null,
+    @SerialName("updated_at") val updatedAt: Long = 0,
+    val attachments: List<SyncAttachment> = emptyList(),
+) {
+    val fromMe: Boolean get() = direction == "out"
+}
+
+@Serializable
+data class SyncConversation(val id: String = "", val unread: Boolean = false)
+
+@Serializable
+data class SyncDeletion(
+    @SerialName("content_hash") val contentHash: String? = null,
+    @SerialName("conversation_id") val conversationId: String? = null,
+    @SerialName("message_id") val messageId: String? = null,
+    val ts: Long = 0,
+)
+
+@Serializable
+data class DeltaResponse(
+    val messages: List<SyncMessage> = emptyList(),
+    val conversations: List<SyncConversation> = emptyList(),
+    val deletions: List<SyncDeletion> = emptyList(),
+    val cursor: Long = 0,
+)
+
+// ---- BlueBubbles ----------------------------------------------------------
+
+@Serializable
+data class BBHandle(val address: String? = null)
+
+@Serializable
+data class BBAttachment(
+    val guid: String = "",
+    val mimeType: String? = null,
+    val transferName: String? = null,
+)
+
+@Serializable
+data class BBMessage(
+    val guid: String = "",
+    val text: String? = null,
+    val dateCreated: Long? = null,
+    val isFromMe: Boolean? = null,
+    val handle: BBHandle? = null,
+    val attachments: List<BBAttachment> = emptyList(),
+)
+
+@Serializable
+data class BBChat(
+    val guid: String = "",
+    val chatIdentifier: String? = null,
+    val displayName: String? = null,
+    val style: Int? = null, // 43 = group, 45 = 1:1
+    val participants: List<BBHandle> = emptyList(),
+    val lastMessage: BBMessage? = null,
+)
+
+@Serializable
+data class BBChatQueryResponse(val data: List<BBChat> = emptyList())
+
+@Serializable
+data class BBMessageQueryResponse(val data: List<BBMessage> = emptyList())
