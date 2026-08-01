@@ -13,6 +13,16 @@
 		AAF1700000000000000000AE /* OTPFill.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AAF1700000000000000000A1 /* OTPFill.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		AAF1700000000000000000AF /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 52A69BDC3009853D0069E140 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AAF1700000000000000000A9;
+			remoteInfo = OTPFill;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXCopyFilesBuildPhase section */
 		5BAA00053009853D0069E140 /* Embed Frameworks */ = {
 			isa = PBXCopyFilesBuildPhase;
@@ -99,6 +109,14 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		5BAA00063009853D0069E140 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				5BAA00013009853D0069E140 /* Gmbridge.xcframework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		AAF1700000000000000000A5 /* OTPFill Supporting */ = {
 			isa = PBXGroup;
 			children = (
@@ -106,14 +124,6 @@
 				AAF1700000000000000000A4 /* OTPFill.entitlements */,
 			);
 			path = "OTPFill Supporting";
-			sourceTree = "<group>";
-		};
-		5BAA00063009853D0069E140 /* Frameworks */ = {
-			isa = PBXGroup;
-			children = (
-				5BAA00013009853D0069E140 /* Gmbridge.xcframework */,
-			);
-			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -241,16 +251,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXContainerItemProxy section */
-		AAF1700000000000000000AF /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 52A69BDC3009853D0069E140 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = AAF1700000000000000000A9;
-			remoteInfo = OTPFill;
-		};
-/* End PBXContainerItemProxy section */
 
 /* Begin PBXTargetDependency section */
 		AAF1700000000000000000B0 /* PBXTargetDependency */ = {
