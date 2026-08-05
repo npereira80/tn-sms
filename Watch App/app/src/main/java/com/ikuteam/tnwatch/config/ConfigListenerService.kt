@@ -1,6 +1,5 @@
 package com.ikuteam.tnwatch.config
 
-import android.util.Log
 import com.google.android.gms.wearable.DataEvent
 import com.google.android.gms.wearable.DataEventBuffer
 import com.google.android.gms.wearable.DataMapItem
@@ -28,12 +27,10 @@ class ConfigListenerService : WearableListenerService() {
             )
             ConfigStore.load(this)
             ConfigStore.merge(this, incoming)
-            Log.i(TAG, "Config provisioned from phone (sync=${incoming.syncUrl.isNotBlank()}, bb=${incoming.bbUrl.isNotBlank()})")
         }
     }
 
     companion object {
-        private const val TAG = "TnWatchConfig"
         const val PATH = "/tnwatch/config"
         const val KEY_SYNC_URL = "syncUrl"
         const val KEY_SYNC_SECRET = "syncSecret"

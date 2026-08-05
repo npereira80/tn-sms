@@ -3,7 +3,6 @@ package com.ikuteam.tnwatch
 import android.Manifest
 import android.content.Intent
 import android.os.Bundle
-import android.util.Log
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.ViewConfiguration
@@ -93,7 +92,6 @@ class MainActivity : ComponentActivity() {
                 bbPassword = e.getString("bbPassword", ""),
             ),
         )
-        Log.i("TnWatch", "Config applied from intent extras")
     }
 
     override fun onResume() {

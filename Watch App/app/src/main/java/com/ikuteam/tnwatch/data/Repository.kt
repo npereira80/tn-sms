@@ -79,7 +79,6 @@ class Repository(private val app: Context) {
             smsConfigured = config.hasSync,
             bbConfigured = config.hasBB,
         )
-        Log.i(TAG, "configure: sync=${config.hasSync} bb=${config.hasBB}")
 
         if (!config.isConfigured) {
             _status.value = Status.NeedsConfig

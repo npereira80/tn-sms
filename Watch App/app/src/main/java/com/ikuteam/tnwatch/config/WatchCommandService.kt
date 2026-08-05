@@ -19,7 +19,6 @@ class WatchCommandService : WearableListenerService() {
         when (event.path) {
             PATH_STATUS -> replyStatus(event.sourceNodeId)
             PATH_RESYNC -> {
-                Log.i(TAG, "full re-sync requested by phone")
                 TnWatchApp.repo(this).fullResync()
                 replyStatus(event.sourceNodeId)
             }

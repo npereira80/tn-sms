@@ -73,8 +73,6 @@ object Contacts {
             Log.w(TAG, "contacts index: no READ_CONTACTS permission")
             return out
         }
-        var rows = 0
-        var withPhoto = 0
         try {
             context.contentResolver.query(
                 ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
@@ -88,7 +86,6 @@ object Contacts {
                 null, null, null,
             )?.use { c ->
                 while (c.moveToNext()) {
-                    rows++
                     val name = c.getString(0)?.takeIf { it.isNotBlank() } ?: continue
                     val number = c.getString(1) ?: continue
                     // Thumbnail FIRST: it lives in the local contacts DB, while
@@ -97,7 +94,6 @@ object Contacts {
                     // avatar). A thumbnail is plenty for a 40dp circle.
                     val photo = (if (c.isNull(3)) null else c.getString(3))
                         ?: (if (c.isNull(2)) null else c.getString(2))
-                    if (photo != null) withPhoto++
                     val digits = number.filter { it.isDigit() }
                     if (digits.length < 6) continue
                     val key = suffixKey(digits)
@@ -112,7 +108,6 @@ object Contacts {
         } catch (e: Exception) {
             Log.w(TAG, "contacts index failed: ${e.javaClass.simpleName}: ${e.message}")
         }
-        Log.i(TAG, "contacts index: rows=$rows keys=${out.size} withPhoto=$withPhoto")
         return out
     }
 }
