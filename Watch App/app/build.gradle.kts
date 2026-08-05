@@ -9,7 +9,10 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.ikuteam.tnwatch"
+        // MUST match the phone app's applicationId (prod flavor): the Wear Data
+        // Layer only shares DataItems/messages between apps with the same
+        // application id + signing key. The Kotlin package stays tnwatch.
+        applicationId = "com.bluebubbles.messaging"
         minSdk = 30            // WearOS 3.0
         targetSdk = 34
         versionCode = 1

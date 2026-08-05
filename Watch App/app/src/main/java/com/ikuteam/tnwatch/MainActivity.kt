@@ -1,12 +1,16 @@
 package com.ikuteam.tnwatch
 
 import android.Manifest
+import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
 import com.ikuteam.tnwatch.config.ConfigRequester
+import com.ikuteam.tnwatch.config.ConfigStore
+import com.ikuteam.tnwatch.config.TnConfig
 import com.ikuteam.tnwatch.ui.WearApp
 import kotlinx.coroutines.launch
 
@@ -19,12 +23,44 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         contactsPermission.launch(Manifest.permission.READ_CONTACTS)
+        applyConfigFromIntent(intent)
 
         // Ask the phone to (re)send both backends' credentials.
         lifecycleScope.launch { ConfigRequester.requestFromPhone(applicationContext) }
 
         val repo = TnWatchApp.repo(this)
         setContent { WearApp(repo) }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        applyConfigFromIntent(intent)
+    }
+
+    /**
+     * Manual config override, for setup/debugging without the phone:
+     *
+     *   adb shell am start -n com.bluebubbles.messaging/com.ikuteam.tnwatch.MainActivity \
+     *     --es syncUrl https://sms.example.net --es syncSecret SECRET \
+     *     --es bbUrl https://bb.example.com --es bbPassword PASSWORD
+     *
+     * Only the extras present are applied; the rest keep their stored values.
+     */
+    private fun applyConfigFromIntent(intent: Intent?) {
+        val e = intent?.extras ?: return
+        val keys = listOf("syncUrl", "syncSecret", "bbUrl", "bbPassword")
+        if (keys.none { e.containsKey(it) }) return
+        ConfigStore.load(this)
+        ConfigStore.merge(
+            this,
+            TnConfig(
+                syncUrl = e.getString("syncUrl", ""),
+                syncSecret = e.getString("syncSecret", ""),
+                bbUrl = e.getString("bbUrl", ""),
+                bbPassword = e.getString("bbPassword", ""),
+            ),
+        )
+        Log.i("TnWatch", "Config applied from intent extras")
     }
 
     override fun onResume() {

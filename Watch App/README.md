@@ -47,10 +47,24 @@ Data Layer — the watch never asks you to type them.
   stores whatever arrives. The watch then registers itself with the sync server
   (using the secret) and connects to BlueBubbles.
 
-**Requirement:** the Wear Data Layer only delivers between apps signed with the
-**same key**. Sign the watch app and the phone app with the same keystore (debug
-builds already share the default debug key, so a debug watch + debug phone pair
-works out of the box).
+**Requirement:** the Wear Data Layer only shares data between apps with the
+**same applicationId AND the same signing key**. That's why this module sets
+`applicationId = "com.bluebubbles.messaging"` (matching the phone app's `prod`
+flavor) while keeping `com.ikuteam.tnwatch` as the Kotlin package. Debug builds
+share the default debug key, so a debug watch + debug phone pair works.
+
+### Manual setup (no phone needed)
+
+Useful for first-run testing or if provisioning misbehaves:
+
+```bash
+S="<watch-adb-serial>"
+adb -s "$S" shell am start -n com.bluebubbles.messaging/com.ikuteam.tnwatch.MainActivity \
+  --es syncUrl https://sms.tn-services.net --es syncSecret 'YOUR_SECRET' \
+  --es bbUrl https://your-bb-host --es bbPassword 'YOUR_BB_PASSWORD'
+```
+
+Only the extras you pass are applied; the rest keep their stored values.
 
 ## Build & run
 
