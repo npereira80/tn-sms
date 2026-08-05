@@ -68,6 +68,21 @@
             </intent-filter>
         </service>
 
+        <!-- Receives results of HTTP requests the phone ran on our behalf (used
+             when the watch has no network of its own). -->
+        <service
+            android:name=".config.RelayReplyService"
+            android:exported="true"
+            tools:ignore="ExportedService">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.DATA_CHANGED" />
+                <data
+                    android:scheme="wear"
+                    android:host="*"
+                    android:pathPrefix="/tnwatch/http-reply/" />
+            </intent-filter>
+        </service>
+
         <!-- Serves the phone's "Watch App Client" screen: status + full re-sync. -->
         <service
             android:name=".config.WatchCommandService"

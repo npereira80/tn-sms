@@ -8,6 +8,7 @@ import java.io.PrintWriter
 import java.io.StringWriter
 import com.ikuteam.tnwatch.config.ConfigStore
 import com.ikuteam.tnwatch.data.Repository
+import com.ikuteam.tnwatch.net.Http
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -22,6 +23,8 @@ class TnWatchApp : Application() {
     override fun onCreate() {
         super.onCreate()
         installCrashLogger()
+        // Needed so a failed request can be relayed through the phone.
+        Http.appContext = applicationContext
         ConfigStore.load(this)
         repo = Repository(applicationContext)
         repo.configure(ConfigStore.state.value)
