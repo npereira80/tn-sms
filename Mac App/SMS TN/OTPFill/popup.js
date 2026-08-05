@@ -1,4 +1,4 @@
-// Toolbar popover for SMS TN OTP Fill.
+// Toolbar popover for Bubbles OTP Fill.
 //
 // Flow: on open, ask the containing macOS app (via the native handler) for the
 // freshest unexpired code. If there is one, show it with Fill / Copy. "Fill"

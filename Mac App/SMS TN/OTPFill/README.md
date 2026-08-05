@@ -1,6 +1,6 @@
-# OTPFill — Safari Web Extension (SMS TN)
+# OTPFill — Safari Web Extension (Bubbles)
 
-One-click fill of SMS one-time codes into Safari. When a code arrives, SMS TN
+One-click fill of SMS one-time codes into Safari. When a code arrives, Bubbles
 detects it (`OTPCenter`) and publishes the freshest unexpired code to a shared
 App Group. This extension's toolbar popover reads it and fills an OTP field on
 the active page. Nothing is stored in the browser; codes expire after 3 minutes.
@@ -69,8 +69,8 @@ bundle id `macDroid.SMS-TN.OTPFill`, App Group `group.macDroid.SMS-TN`, team
 
 ## Enable in Safari
 
-1. Run SMS TN once so the app (and its embedded extension) is registered.
-2. Safari ▸ Settings ▸ **Extensions** ▸ enable **SMS TN OTP Fill**.
+1. Run Bubbles once so the app (and its embedded extension) is registered.
+2. Safari ▸ Settings ▸ **Extensions** ▸ enable **Bubbles OTP Fill**.
    - If it doesn't appear: Safari ▸ Settings ▸ Advanced ▸ "Show features for web
      developers", then Develop menu ▸ **Allow Unsigned Extensions** (only needed
      for local debug builds; a Developer ID signed + notarized build is trusted).
@@ -79,7 +79,7 @@ bundle id `macDroid.SMS-TN.OTPFill`, App Group `group.macDroid.SMS-TN`, team
 ## Test
 
 1. Send yourself an SMS with a code (e.g. "Your code is 123456").
-2. SMS TN detects it (you'll see the existing notification).
+2. Bubbles detects it (you'll see the existing notification).
 3. On a page with a verification-code field, click the OTPFill toolbar icon.
    The popover shows `123456`; click **Fill**.
 4. After 3 minutes the popover shows "No recent code".
