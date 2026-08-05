@@ -157,7 +157,11 @@ class Repository(private val app: Context) {
                 // last message). Per-chat iMessage history is one request per chat,
                 // so it's backfilled in the background below instead of holding
                 // the list hostage — that walk is what used to take minutes.
-                val chatList = withTimeoutOrNull(60_000) {
+                // Generous safety net only: every request already has its own
+                // OkHttp timeout, and a first-run SMS catch-up legitimately takes
+                // a while (it pages the whole history). A short ceiling here used
+                // to cancel mid-sync and get misreported as "servers offline".
+                val chatList = withTimeoutOrNull(600_000) {
                     syncSms()
                     syncIMessageChats()
                 } ?: emptyList()
