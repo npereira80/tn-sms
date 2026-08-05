@@ -77,12 +77,37 @@ Only the extras you pass are applied; the rest keep their stored values.
    names come from BlueBubbles).
 5. The chat list should populate within a few seconds. Tap a chat, then **Reply**.
 
-## Notes / limits (v1)
+## Offline behaviour
+
+A local SQLite database (`Db.kt`) is the UI's source of truth:
+
+- Threads render instantly from cache and are fully readable with no network.
+- Sync is incremental: the SMS `/delta` cursor and a per-chat iMessage cursor are
+  persisted, so a launch fetches only what's new. Nothing is trimmed.
+- First launch blocks on a "Syncing…" spinner until the initial sync completes;
+  later launches sync in the background behind a thin banner.
+- Replies made offline go to an on-disk outbox, show "Sending…", and are retried
+  every 15s until they land.
+- A banner reports trouble: **Offline** (no network), **SMS Offline**,
+  **iMessage Offline**, or **Servers Offline**.
+- Pull down at the top of a list for an incremental sync.
+
+## Phone-side status screen
+
+On the phone: Settings ▸ **Watch App Client**. It queries the watch live over
+Bluetooth and shows whether the watch has network, whether each server is
+reachable *from the watch*, how much is cached, and anything queued to send. It
+also offers "Send settings to watch" and a destructive **Full re-sync** (wipes the
+watch database and downloads everything again). If the watch is out of range it
+says so rather than showing stale data.
+
+## Notes / limits
 
 - Reply-only by design; no new-conversation or group-create flow.
-- Live updates: SMS is effectively live (the `/stream` WebSocket nudges a
-  refresh); iMessage and the open thread poll every few seconds while visible.
+- Live updates: SMS is effectively live (the `/stream` WebSocket nudges a sync);
+  iMessage refreshes on launch, on pull-to-refresh, and after sending.
 - Group chats appear (iMessage) and are replyable, but aren't merged with SMS.
-- Read receipts / delete-from-watch are not implemented in v1.
+- Read receipts / delete-from-watch are not implemented.
+- Sending photos from the watch is not implemented (text only).
 - Gradle dependency versions are conservative; Android Studio may prompt to
   align them with your installed SDK/AGP.
