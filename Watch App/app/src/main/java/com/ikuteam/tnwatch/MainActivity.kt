@@ -14,6 +14,7 @@ import androidx.lifecycle.lifecycleScope
 import com.ikuteam.tnwatch.config.ConfigRequester
 import com.ikuteam.tnwatch.config.ConfigStore
 import com.ikuteam.tnwatch.config.TnConfig
+import com.ikuteam.tnwatch.data.Contacts
 import com.ikuteam.tnwatch.ui.RotaryBus
 import com.ikuteam.tnwatch.ui.WearApp
 import kotlinx.coroutines.launch
@@ -21,7 +22,14 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
 
     private val contactsPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* best-effort */ }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            // Contacts became readable: drop the cached index and re-resolve
+            // names/photos for chats already stored.
+            if (granted) {
+                Contacts.invalidate()
+                TnWatchApp.repo(this).refreshContactNames()
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
