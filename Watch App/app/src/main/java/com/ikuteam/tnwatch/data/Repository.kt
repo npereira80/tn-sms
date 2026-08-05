@@ -221,6 +221,7 @@ class Repository(private val app: Context) {
                             service = Service.SMS,
                             imageUrl = m.attachments.firstOrNull { it.mime.startsWith("image/") }
                                 ?.let { s.mediaUrl(it.sha256) },
+                            contentHash = m.contentHash,
                         )
                     }
                     db.upsertMessages(ui, convId)
@@ -229,7 +230,17 @@ class Repository(private val app: Context) {
                     upsertSmsChat(convId, addr, newest?.body.orEmpty(), newest?.ts ?: 0L,
                         hasImage = newest?.attachments?.isNotEmpty() == true)
                 }
-                for (del in d.deletions) del.messageId?.let { db.deleteMessage(it) }
+                // Apply tombstones by id AND by content hash: a delete made on
+                // another client only removed our copy when the server id matched,
+                // which silently missed rows that were ingested under a different
+                // id (duplicate ingest, re-sync). The hash is the cross-device
+                // identity, so it always matches.
+                var removed = 0
+                for (del in d.deletions) {
+                    del.messageId?.takeIf { it.isNotBlank() }?.let { removed += db.deleteMessage(it) }
+                    del.contentHash?.takeIf { it.isNotBlank() }?.let { removed += db.deleteMessageByHash(it) }
+                }
+                if (removed > 0) _revision.value = _revision.value + 1
                 d.conversations.forEach { conv ->
                     if (conv.id.isNotBlank()) markUnread(conv.id, conv.unread)
                 }

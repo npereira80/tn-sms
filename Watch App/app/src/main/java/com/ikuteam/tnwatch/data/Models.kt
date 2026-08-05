@@ -12,6 +12,8 @@ data class UiMessage(
     val service: Service,
     val imageUrl: String? = null, // authenticated URL for a thumbnail, if any
     val pending: Boolean = false, // queued in the outbox, not sent yet
+    /** Server-side cross-device identity, used to apply deletion tombstones. */
+    val contentHash: String? = null,
 )
 
 /** Connectivity + per-backend reachability, shown as a banner. */

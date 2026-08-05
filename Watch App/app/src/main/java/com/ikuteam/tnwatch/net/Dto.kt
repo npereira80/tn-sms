@@ -55,6 +55,9 @@ data class SyncAttachment(
 data class SyncMessage(
     val id: String = "",
     @SerialName("conversation_id") val conversationId: String = "",
+    /** Cross-device identity. Stored so a deletion tombstone can be matched even
+     *  when our cached row's server id differs (duplicate ingest, re-sync). */
+    @SerialName("content_hash") val contentHash: String? = null,
     val direction: String = "in", // "in" | "out"
     val address: String = "",
     val body: String = "",

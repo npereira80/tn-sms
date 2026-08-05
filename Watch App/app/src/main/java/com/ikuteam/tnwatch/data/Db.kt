@@ -15,7 +15,7 @@ import android.database.sqlite.SQLiteOpenHelper
  *   bb_cursor:<chatGuid> — newest iMessage timestamp seen for that chat
  *   first_sync_done      — "1" once the initial full sync completed
  */
-class Db(context: Context) : SQLiteOpenHelper(context, "tnwatch.db", null, 2) {
+class Db(context: Context) : SQLiteOpenHelper(context, "tnwatch.db", null, 3) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -27,11 +27,13 @@ class Db(context: Context) : SQLiteOpenHelper(context, "tnwatch.db", null, 2) {
                 body TEXT NOT NULL DEFAULT '',
                 from_me INTEGER NOT NULL DEFAULT 0,
                 ts INTEGER NOT NULL DEFAULT 0,
-                image_url TEXT
+                image_url TEXT,
+                content_hash TEXT
             )
             """.trimIndent(),
         )
         db.execSQL("CREATE INDEX idx_message_chat_ts ON message(chat_key, ts)")
+        db.execSQL("CREATE INDEX idx_message_hash ON message(content_hash)")
         db.execSQL(
             """
             CREATE TABLE chat (
@@ -67,6 +69,10 @@ class Db(context: Context) : SQLiteOpenHelper(context, "tnwatch.db", null, 2) {
         // Additive migrations only, so an upgrade never forces a full re-sync.
         if (oldVersion < 2) {
             runCatching { db.execSQL("ALTER TABLE chat ADD COLUMN last_service TEXT") }
+        }
+        if (oldVersion < 3) {
+            runCatching { db.execSQL("ALTER TABLE message ADD COLUMN content_hash TEXT") }
+            runCatching { db.execSQL("CREATE INDEX idx_message_hash ON message(content_hash)") }
         }
     }
 
@@ -113,6 +119,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "tnwatch.db", null, 2) {
                         put("from_me", if (m.fromMe) 1 else 0)
                         put("ts", m.timestamp)
                         put("image_url", m.imageUrl)
+                        put("content_hash", m.contentHash)
                     },
                     SQLiteDatabase.CONFLICT_REPLACE,
                 )
@@ -126,7 +133,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "tnwatch.db", null, 2) {
     fun messages(chatKey: String): List<UiMessage> =
         readableDatabase.query(
             "message",
-            arrayOf("id", "service", "body", "from_me", "ts", "image_url"),
+            arrayOf("id", "service", "body", "from_me", "ts", "image_url", "content_hash"),
             "chat_key = ?", arrayOf(chatKey), null, null, "ts ASC",
         ).use { c ->
             val out = ArrayList<UiMessage>(c.count)
@@ -138,14 +145,20 @@ class Db(context: Context) : SQLiteOpenHelper(context, "tnwatch.db", null, 2) {
                     fromMe = c.getInt(3) == 1,
                     timestamp = c.getLong(4),
                     imageUrl = if (c.isNull(5)) null else c.getString(5),
+                    contentHash = if (c.isNull(6)) null else c.getString(6),
                 )
             }
             out
         }
 
-    fun deleteMessage(id: String) {
+    /** Removes a message by server id. Returns rows affected. */
+    fun deleteMessage(id: String): Int =
         writableDatabase.delete("message", "id = ?", arrayOf(id))
-    }
+
+    /** Removes a message by cross-device content hash. Returns rows affected.
+     *  Needed when a tombstone's server id doesn't match our cached copy. */
+    fun deleteMessageByHash(hash: String): Int =
+        writableDatabase.delete("message", "content_hash = ?", arrayOf(hash))
 
     /** Removes a whole thread: its messages, the chat row, and any queued sends. */
     fun deleteChat(key: String) {
