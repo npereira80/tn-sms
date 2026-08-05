@@ -3,6 +3,7 @@ package com.ikuteam.tnwatch.ui
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -33,11 +34,22 @@ fun LoadingScreen() {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Image(
-            painter = painterResource(R.drawable.splash_icon),
-            contentDescription = null,
-            modifier = Modifier.size(56.dp).clip(CircleShape),
-        )
+        // Built in Compose rather than loading @drawable/splash_icon: that's a
+        // layer-list, and painterResource only accepts vector/bitmap drawables
+        // (handing it a LayerDrawable throws).
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .clip(CircleShape)
+                .background(Color(0xFF2563EB)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Image(
+                painter = painterResource(R.drawable.ic_launcher_foreground),
+                contentDescription = null,
+                modifier = Modifier.size(56.dp),
+            )
+        }
         Text(
             text = "Loading…",
             style = MaterialTheme.typography.caption2,
