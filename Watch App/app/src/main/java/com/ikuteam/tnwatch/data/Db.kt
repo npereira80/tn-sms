@@ -147,6 +147,20 @@ class Db(context: Context) : SQLiteOpenHelper(context, "tnwatch.db", null, 2) {
         writableDatabase.delete("message", "id = ?", arrayOf(id))
     }
 
+    /** Removes a whole thread: its messages, the chat row, and any queued sends. */
+    fun deleteChat(key: String) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete("message", "chat_key = ?", arrayOf(key))
+            db.delete("chat", "key = ?", arrayOf(key))
+            db.delete("outbox", "chat_key = ?", arrayOf(key))
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
     /** Newest stored timestamp for a chat, used as an incremental fetch cursor. */
     fun newestTs(chatKey: String): Long =
         readableDatabase.rawQuery(

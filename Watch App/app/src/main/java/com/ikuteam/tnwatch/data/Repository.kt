@@ -2,7 +2,6 @@ package com.ikuteam.tnwatch.data
 
 import android.content.Context
 import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.util.Log
 import com.ikuteam.tnwatch.config.ConfigStore
 import com.ikuteam.tnwatch.config.TnConfig
@@ -67,6 +66,19 @@ class Repository(private val app: Context) {
         // Show cached content immediately, before any network work.
         _chats.value = db.chats()
         scope.launch { outboxLoop() }
+        scope.launch { pollLoop() }
+    }
+
+    /**
+     * Periodic incremental sync. The /stream WebSocket keeps SMS live over Wi-Fi,
+     * but it can't be relied on across the phone's Bluetooth proxy, so poll as
+     * well. Cheap: /delta returns nothing when there's nothing new.
+     */
+    private suspend fun pollLoop() {
+        while (scope.isActive) {
+            delay(60_000)
+            if (sync != null || bb != null) syncAll(full = false)
+        }
     }
 
     // ---- configuration ----------------------------------------------------
@@ -102,10 +114,24 @@ class Repository(private val app: Context) {
 
     // ---- status -----------------------------------------------------------
 
+    /**
+     * Whether a network is plausibly usable.
+     *
+     * Deliberately optimistic: with no Wi-Fi, Wear routes traffic through the
+     * phone over Bluetooth, and that proxy transport does not reliably advertise
+     * NET_CAPABILITY_INTERNET (sometimes there's no activeNetwork at all). Trusting
+     * ConnectivityManager therefore made the app declare itself offline and skip
+     * requests that would have worked. So: only report offline when the framework
+     * is certain there's no network, and otherwise let the request itself decide.
+     */
     private fun onlineNow(): Boolean {
         val cm = app.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
-        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
-        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        val network = cm.activeNetwork
+        if (network != null) return true
+        // No default network: the Bluetooth proxy may still carry traffic, so only
+        // call it offline when nothing is connected at all.
+        @Suppress("DEPRECATION")
+        return cm.allNetworks.isNotEmpty()
     }
 
     // ---- sync -------------------------------------------------------------
@@ -123,7 +149,6 @@ class Repository(private val app: Context) {
         if (syncMutex.isLocked) return
         syncMutex.withLock {
             _syncing.value = true
-            _net.value = _net.value.copy(online = onlineNow())
             try {
                 // Hard ceiling: a hung request must never leave "Syncing…" up
                 // indefinitely (the per-call OkHttp timeouts still apply).
@@ -134,6 +159,11 @@ class Repository(private val app: Context) {
                 publishChats()
                 if (!db.firstSyncDone) db.firstSyncDone = true
                 _status.value = Status.Ready
+                // "Offline" now means what actually happened: if either backend
+                // answered we clearly have a route, whatever the framework says.
+                val n = _net.value
+                val anyReachable = (n.smsConfigured && n.smsOk) || (n.bbConfigured && n.bbOk)
+                _net.value = n.copy(online = anyReachable || onlineNow())
                 // Pick up contacts added/edited since the chat rows were stored.
                 Contacts.invalidate()
                 refreshContactNames()
@@ -354,9 +384,9 @@ class Repository(private val app: Context) {
     private suspend fun flushOutbox() {
         val pending = db.pendingOutbox()
         if (pending.isEmpty()) return
-        _net.value = _net.value.copy(online = onlineNow())
-        if (!_net.value.online) return
-
+        // Always try: over the Bluetooth proxy the framework may claim there's no
+        // network even though the request would go through. A failure just leaves
+        // the item queued for the next attempt.
         for (item in pending) {
             val sent = try {
                 when (item.service) {
@@ -372,6 +402,32 @@ class Repository(private val app: Context) {
         _revision.value = _revision.value + 1
         // Pick up the server's copy of what we just sent.
         syncAll(full = false)
+    }
+
+    // ---- deleting ---------------------------------------------------------
+
+    /**
+     * Deletes one message everywhere. SMS/MMS only: the sync server owns those,
+     * so it tombstones the message and every other device drops it too. iMessage
+     * can't be deleted (no BlueBubbles API for it), so the UI doesn't offer it.
+     */
+    fun deleteMessage(message: UiMessage) {
+        if (message.service != Service.SMS) return
+        scope.launch {
+            runCatching { sync?.deleteMessages(listOf(message.id)) }
+            db.deleteMessage(message.id)
+            publishChats()
+        }
+    }
+
+    /** Deletes a whole SMS thread everywhere, then locally. */
+    fun deleteChat(chat: UiChat) {
+        if (Service.SMS !in chat.services) return
+        scope.launch {
+            runCatching { sync?.deleteConversation(chat.key) }
+            db.deleteChat(chat.key)
+            publishChats()
+        }
     }
 
     // ---- misc -------------------------------------------------------------

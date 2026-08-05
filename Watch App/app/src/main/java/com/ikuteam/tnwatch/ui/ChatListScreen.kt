@@ -1,7 +1,8 @@
 package com.ikuteam.tnwatch.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,6 +45,8 @@ fun ChatListScreen(repo: Repository, onOpen: (UiChat) -> Unit) {
     val chats by repo.chats.collectAsStateWithLifecycle()
     val status by repo.status.collectAsStateWithLifecycle()
     val listState = rememberScalingLazyListState()
+    // Long-pressed chat awaiting delete confirmation.
+    var pendingDelete by remember { mutableStateOf<UiChat?>(null) }
 
     // First run has nothing cached yet: hold the screen on a spinner until the
     // initial sync finishes, rather than showing an empty list.
@@ -62,6 +68,7 @@ fun ChatListScreen(repo: Repository, onOpen: (UiChat) -> Unit) {
 
     RotaryScrollHandler(listState)
 
+    Box(Modifier.fillMaxSize()) {
     ScalingLazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -84,7 +91,29 @@ fun ChatListScreen(repo: Repository, onOpen: (UiChat) -> Unit) {
         }
 
         items(chats, key = { it.key }) { chat ->
-            ChatRow(chat) { onOpen(chat) }
+            ChatRow(
+                chat = chat,
+                onClick = { onOpen(chat) },
+                // iMessage-only threads can't be deleted (no BlueBubbles API).
+                onLongClick = if (Service.SMS in chat.services) {
+                    { pendingDelete = chat }
+                } else {
+                    null
+                },
+            )
+        }
+    }
+
+        pendingDelete?.let { chat ->
+            ConfirmDeleteOverlay(
+                title = "Delete conversation?",
+                detail = chat.title,
+                onConfirm = {
+                    repo.deleteChat(chat)
+                    pendingDelete = null
+                },
+                onCancel = { pendingDelete = null },
+            )
         }
     }
 }
@@ -93,12 +122,13 @@ fun ChatListScreen(repo: Repository, onOpen: (UiChat) -> Unit) {
  * Contact-photo row: avatar, bold name, muted snippet. No chip background, so the
  * list reads like the phone's conversation list rather than a stack of buttons.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ChatRow(chat: UiChat, onClick: () -> Unit) {
+private fun ChatRow(chat: UiChat, onClick: () -> Unit, onLongClick: (() -> Unit)?) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

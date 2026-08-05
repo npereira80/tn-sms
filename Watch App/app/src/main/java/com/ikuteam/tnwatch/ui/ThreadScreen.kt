@@ -3,8 +3,10 @@ package com.ikuteam.tnwatch.ui
 import android.app.RemoteInput
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -53,6 +55,8 @@ fun ThreadScreen(repo: Repository, chat: UiChat) {
     var messages by remember { mutableStateOf<List<UiMessage>>(emptyList()) }
     // Full-screen photo shown as an overlay above this screen (see ImageViewerOverlay).
     var fullImage by remember { mutableStateOf<String?>(null) }
+    // Long-pressed message awaiting delete confirmation.
+    var pendingDelete by remember { mutableStateOf<UiMessage?>(null) }
     // Which service the pending reply will use; set when a Reply button is tapped.
     var replyService by remember { mutableStateOf(chat.defaultService) }
     val listState = rememberScalingLazyListState()
@@ -102,7 +106,18 @@ fun ThreadScreen(repo: Repository, chat: UiChat) {
             item { ListHeader { Text(chat.title, maxLines = 1) } }
 
             items(messages, key = { it.id }) { m ->
-                MessageBubble(m, repo) { url -> fullImage = url }
+                MessageBubble(
+                    m = m,
+                    repo = repo,
+                    onOpenImage = { url -> fullImage = url },
+                    // Only SMS/MMS can be deleted: the sync server owns those.
+                    // iMessage has no delete API, so no menu appears for it.
+                    onLongPress = if (m.service == Service.SMS && !m.pending) {
+                        { pendingDelete = m }
+                    } else {
+                        null
+                    },
+                )
             }
 
             // One button per available service, coloured to match its bubbles.
@@ -134,6 +149,19 @@ fun ThreadScreen(repo: Repository, chat: UiChat) {
         fullImage?.let { url ->
             ImageViewerOverlay(repo, url) { fullImage = null }
         }
+
+        pendingDelete?.let { message ->
+            ConfirmDeleteOverlay(
+                title = "Delete message?",
+                detail = message.text.ifBlank { "Photo" },
+                onConfirm = {
+                    repo.deleteMessage(message)
+                    messages = messages.filterNot { it.id == message.id }
+                    pendingDelete = null
+                },
+                onCancel = { pendingDelete = null },
+            )
+        }
     }
 }
 
@@ -156,8 +184,14 @@ private fun ReplyButton(label: String, tint: Color, onClick: () -> Unit) {
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MessageBubble(m: UiMessage, repo: Repository, onOpenImage: (String) -> Unit) {
+private fun MessageBubble(
+    m: UiMessage,
+    repo: Repository,
+    onOpenImage: (String) -> Unit,
+    onLongPress: (() -> Unit)?,
+) {
     val bg = when {
         !m.fromMe -> RECEIVED
         m.service == Service.IMESSAGE -> IMESSAGE_BLUE
@@ -168,7 +202,8 @@ private fun MessageBubble(m: UiMessage, repo: Repository, onOpenImage: (String) 
             .fillMaxWidth()
             .padding(vertical = 2.dp)
             // Inset the opposite edge so sent/received are easy to tell apart.
-            .padding(end = if (m.fromMe) 0.dp else 15.dp, start = if (m.fromMe) 15.dp else 0.dp),
+            .padding(end = if (m.fromMe) 0.dp else 15.dp, start = if (m.fromMe) 15.dp else 0.dp)
+            .combinedClickable(enabled = onLongPress != null, onClick = {}, onLongClick = onLongPress),
         horizontalAlignment = if (m.fromMe) Alignment.End else Alignment.Start,
     ) {
         m.imageUrl?.let { url ->

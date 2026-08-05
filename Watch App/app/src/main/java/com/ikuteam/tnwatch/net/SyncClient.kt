@@ -5,8 +5,10 @@ import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 
 /**
  * Client for the SMS sync server (SMS/MMS). Mirrors the phone's sms_server_client:
@@ -64,6 +66,34 @@ class SyncClient(
         }.toString().toRequestBody(jsonMedia)
         val req = Request.Builder()
             .url(url("/send"))
+            .header("Authorization", "Bearer $t")
+            .post(payload).build()
+        Http.client.newCall(req).execute().use { it.isSuccessful }
+    }
+
+    /** Delete specific messages everywhere (server tombstones + broadcasts). */
+    suspend fun deleteMessages(ids: List<String>): Boolean = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext false
+        val t = ensureToken() ?: return@withContext false
+        val payload = buildJsonObject {
+            putJsonArray("messageIds") { ids.forEach { add(it) } }
+        }.toString().toRequestBody(jsonMedia)
+        val req = Request.Builder()
+            .url(url("/delete"))
+            .header("Authorization", "Bearer $t")
+            .post(payload).build()
+        Http.client.newCall(req).execute().use { it.isSuccessful }
+    }
+
+    /** Delete a whole conversation everywhere. */
+    suspend fun deleteConversation(conversationId: String): Boolean = withContext(Dispatchers.IO) {
+        if (conversationId.isBlank()) return@withContext false
+        val t = ensureToken() ?: return@withContext false
+        val payload = buildJsonObject {
+            put("conversationId", conversationId)
+        }.toString().toRequestBody(jsonMedia)
+        val req = Request.Builder()
+            .url(url("/delete"))
             .header("Authorization", "Bearer $t")
             .post(payload).build()
         Http.client.newCall(req).execute().use { it.isSuccessful }
