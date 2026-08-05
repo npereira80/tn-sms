@@ -21,6 +21,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.io.File
 
 enum class Status { NeedsConfig, FirstSync, Ready }
 
@@ -383,11 +384,31 @@ class Repository(private val app: Context) {
         return if (url.contains("/media/")) "Authorization" to bearer else null
     }
 
+    /** Storage this app occupies on the watch: installed APK + all app data
+     *  (database, image cache, prefs). Mirrors what Android's app-info screen
+     *  reports, without needing the usage-stats permission. */
+    private fun storageBytes(): Long {
+        fun sizeOf(file: File): Long = when {
+            !file.exists() -> 0L
+            file.isFile -> file.length()
+            else -> file.listFiles()?.sumOf { sizeOf(it) } ?: 0L
+        }
+        val data = runCatching { sizeOf(app.dataDir) }.getOrDefault(0L)
+        val apk = runCatching {
+            val info = app.applicationInfo
+            var total = File(info.sourceDir).length()
+            info.splitSourceDirs?.forEach { total += File(it).length() }
+            total
+        }.getOrDefault(0L)
+        return data + apk
+    }
+
     /** Status snapshot for the phone's "Watch App Client" screen. */
     fun statusSnapshot(): Map<String, Any> {
         val (chatCount, messageCount, outboxCount) = db.counts()
         val n = _net.value
         return mapOf(
+            "storageBytes" to storageBytes(),
             "online" to n.online,
             "smsConfigured" to n.smsConfigured,
             "smsOk" to n.smsOk,
