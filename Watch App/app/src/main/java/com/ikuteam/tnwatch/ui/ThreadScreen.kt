@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
@@ -158,7 +159,11 @@ private fun MessageBubble(m: UiMessage, repo: Repository) {
             AsyncImage(
                 model = request,
                 contentDescription = null,
-                modifier = Modifier.size(120.dp).clip(RoundedCornerShape(12.dp)),
+                // Crop, not fit: with a fixed square frame, "fit" letterboxes the
+                // photo and the rounded clip would round transparent bars instead
+                // of the image itself.
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(120.dp).clip(RoundedCornerShape(6.dp)),
             )
         }
         if (m.text.isNotBlank()) {
