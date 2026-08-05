@@ -409,6 +409,7 @@ class Repository(private val app: Context) {
         val n = _net.value
         return mapOf(
             "storageBytes" to storageBytes(),
+            "avatars" to AvatarStore.count(app),
             "online" to n.online,
             "smsConfigured" to n.smsConfigured,
             "smsOk" to n.smsOk,

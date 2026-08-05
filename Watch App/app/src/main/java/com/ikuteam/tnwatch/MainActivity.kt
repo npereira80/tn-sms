@@ -37,8 +37,12 @@ class MainActivity : ComponentActivity() {
         contactsPermission.launch(Manifest.permission.READ_CONTACTS)
         applyConfigFromIntent(intent)
 
-        // Ask the phone to (re)send both backends' credentials.
-        lifecycleScope.launch { ConfigRequester.requestFromPhone(applicationContext) }
+        // Ask the phone to (re)send both backends' credentials, and the contact
+        // photos (the watch's contacts provider lacks them for many contacts).
+        lifecycleScope.launch {
+            ConfigRequester.requestFromPhone(applicationContext)
+            ConfigRequester.requestAvatars(applicationContext)
+        }
 
         val repo = TnWatchApp.repo(this)
         setContent { WearApp(repo) }

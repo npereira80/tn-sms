@@ -53,6 +53,21 @@
             </intent-filter>
         </service>
 
+        <!-- Receives contact photos pushed by the phone (the watch's own contacts
+             provider has no photo data for many contacts). -->
+        <service
+            android:name=".config.AvatarListenerService"
+            android:exported="true"
+            tools:ignore="ExportedService">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.DATA_CHANGED" />
+                <data
+                    android:scheme="wear"
+                    android:host="*"
+                    android:pathPrefix="/tnwatch/avatar/" />
+            </intent-filter>
+        </service>
+
         <!-- Serves the phone's "Watch App Client" screen: status + full re-sync. -->
         <service
             android:name=".config.WatchCommandService"

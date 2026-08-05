@@ -14,9 +14,17 @@ import kotlinx.coroutines.tasks.await
 object ConfigRequester {
     private const val TAG = "TnWatchConfig"
     private const val REQUEST_PATH = "/tnwatch/request-config"
+    private const val AVATARS_PATH = "/tnwatch/request-avatars"
     private const val PHONE_CAPABILITY = "tnwatch_config_provider"
 
-    suspend fun requestFromPhone(context: Context) {
+    /** Ask the phone to (re)send contact photos. The watch's contacts provider
+     *  has no photo data for many contacts, so the phone is the only source. */
+    suspend fun requestAvatars(context: Context) = send(context, AVATARS_PATH)
+
+    suspend fun requestFromPhone(context: Context) = send(context, REQUEST_PATH)
+
+    /** Sends [path] to the phone app (capability-advertising node preferred). */
+    private suspend fun send(context: Context, path: String) {
         try {
             val messageClient = Wearable.getMessageClient(context)
             val capabilityClient = Wearable.getCapabilityClient(context)
@@ -31,11 +39,11 @@ object ConfigRequester {
             val nodes = capable.ifEmpty { Wearable.getNodeClient(context).connectedNodes.await() }
 
             for (node in nodes) {
-                runCatching { messageClient.sendMessage(node.id, REQUEST_PATH, ByteArray(0)).await() }
-                    .onFailure { Log.w(TAG, "request-config to ${node.id} failed: ${it.message}") }
+                runCatching { messageClient.sendMessage(node.id, path, ByteArray(0)).await() }
+                    .onFailure { Log.w(TAG, "$path to ${node.id} failed: ${it.message}") }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "requestFromPhone failed: ${e.message}")
+            Log.w(TAG, "send($path) failed: ${e.message}")
         }
     }
 }

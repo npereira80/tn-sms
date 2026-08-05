@@ -6,7 +6,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -19,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.wear.compose.material.Text
 import coil.compose.AsyncImage
+import com.ikuteam.tnwatch.data.AvatarStore
 import com.ikuteam.tnwatch.data.Contacts
 
 /**
@@ -28,7 +31,14 @@ import com.ikuteam.tnwatch.data.Contacts
 @Composable
 fun Avatar(address: String?, title: String, size: Dp = 40.dp) {
     val ctx = LocalContext.current
-    val photo = remember(address) { address?.let { Contacts.photoUri(ctx, it) } }
+    // Photos pushed from the phone win: the watch's contacts provider has no
+    // photo data for many contacts, so this is the only source for those.
+    val pushedRevision by AvatarStore.revision.collectAsStateWithLifecycle()
+    val photo = remember(address, pushedRevision) {
+        address?.let { addr ->
+            AvatarStore.fileFor(ctx, addr)?.absolutePath ?: Contacts.photoUri(ctx, addr)
+        }
+    }
 
     Box(
         modifier = Modifier
