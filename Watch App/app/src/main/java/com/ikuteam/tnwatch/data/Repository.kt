@@ -297,6 +297,11 @@ class Repository(private val app: Context) {
         // server.
         val imessage = list.filter { it.isIMessage }
         bbChats = imessage
+        if (imessage.size != list.size) {
+            val sample = list.firstOrNull { !it.isIMessage }
+            Log.i(TAG, "BB chats: kept ${imessage.size}/${list.size} as iMessage " +
+                "(dropped e.g. service=${sample?.service} guid=${sample?.guid?.take(24)})")
+        }
         for (chat in imessage) {
             val isGroup = (chat.style == 43) || chat.participants.size > 1
             val participant = chat.chatIdentifier ?: chat.participants.firstOrNull()?.address ?: continue

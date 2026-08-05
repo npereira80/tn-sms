@@ -133,11 +133,17 @@ data class BBChat(
     val participants: List<BBHandle> = emptyList(),
     val lastMessage: BBMessage? = null,
 ) {
-    /** True unless BlueBubbles explicitly says this thread isn't iMessage. */
+    /**
+     * Strictly iMessage. Deliberately not permissive: defaulting to "iMessage"
+     * when the service field was absent is what put a "Reply · iMessage" button
+     * on SMS-only threads. A chat only counts when BlueBubbles says so, or its
+     * guid carries the iMessage prefix (BB guids look like "iMessage;-;+351…"
+     * or "SMS;-;+351…").
+     */
     val isIMessage: Boolean
         get() {
-            val s = service ?: guid.substringBefore(';', "").ifBlank { null }
-            return s == null || s.equals("iMessage", ignoreCase = true)
+            service?.let { return it.equals("iMessage", ignoreCase = true) }
+            return guid.startsWith("iMessage;", ignoreCase = true)
         }
 }
 
