@@ -9,6 +9,7 @@ import android.view.ViewConfiguration
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import com.ikuteam.tnwatch.config.ConfigRequester
 import com.ikuteam.tnwatch.config.ConfigStore
@@ -31,6 +32,10 @@ class MainActivity : ComponentActivity() {
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Covers the cold-start gap that otherwise shows a black screen while the
+        // process starts and the database opens. The app then draws its own
+        // matching "Loading…" screen (the system splash can't show text).
+        installSplashScreen()
         super.onCreate(savedInstanceState)
 
         contactsPermission.launch(Manifest.permission.READ_CONTACTS)
