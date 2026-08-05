@@ -20,10 +20,11 @@ for name in com.tnsms.server com.tnsms.tunnel; do
     dest="$AGENTS/$name.plist"
     sed -e "s|__SERVER_DIR__|$SERVER_DIR|g" -e "s|__HOME__|$HOME|g" \
         "$TEMPLATE_DIR/$name.plist" > "$dest"
-    # Reload cleanly if already installed.
+    # Reload cleanly if already installed. Enable BEFORE bootstrap: a label left
+    # in launchd's disabled list makes bootstrap fail with "5: Input/output error".
     launchctl bootout "gui/$(id -u)/$name" 2>/dev/null || true
-    launchctl bootstrap "gui/$(id -u)" "$dest"
     launchctl enable "gui/$(id -u)/$name"
+    launchctl bootstrap "gui/$(id -u)" "$dest"
     echo "Loaded $name"
 done
 
