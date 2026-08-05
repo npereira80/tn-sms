@@ -1,8 +1,15 @@
 package com.ikuteam.tnwatch.data
 
 import android.content.Context
+import android.util.Log
+import com.google.android.gms.wearable.Wearable
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import java.io.File
 
 /**
@@ -44,6 +51,36 @@ object AvatarStore {
 
     fun clear(context: Context) {
         dir(context).listFiles()?.forEach { it.delete() }
+        requested.clear()
         _revision.value = _revision.value + 1
     }
+
+    // ---- on-demand fetch --------------------------------------------------
+
+    private val requested = java.util.Collections.newSetFromMap(
+        java.util.concurrent.ConcurrentHashMap<String, Boolean>(),
+    )
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * Fallback for a contact we have no photo for: ask the phone to send this
+     * one. Happens when a message arrives from someone who wasn't in the last
+     * bulk push. Asked at most once per key per app run.
+     */
+    fun requestIfMissing(context: Context, address: String) {
+        val key = keyFor(address) ?: return
+        if (fileFor(context, address) != null) return
+        if (!requested.add(key)) return
+        scope.launch {
+            runCatching {
+                val messageClient = Wearable.getMessageClient(context)
+                val nodes = Wearable.getNodeClient(context).connectedNodes.await()
+                for (node in nodes) {
+                    messageClient.sendMessage(node.id, AVATAR_REQUEST_PATH, key.toByteArray()).await()
+                }
+            }.onFailure { Log.w("TnWatchAvatars", "avatar request failed: ${it.message}") }
+        }
+    }
+
+    private const val AVATAR_REQUEST_PATH = "/tnwatch/avatar-request"
 }

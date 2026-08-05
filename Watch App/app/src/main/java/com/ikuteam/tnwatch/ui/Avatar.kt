@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -38,6 +39,12 @@ fun Avatar(address: String?, title: String, size: Dp = 40.dp) {
         address?.let { addr ->
             AvatarStore.fileFor(ctx, addr)?.absolutePath ?: Contacts.photoUri(ctx, addr)
         }
+    }
+
+    // Nothing to show: ask the phone for this contact's photo (once per key).
+    // Covers messages from someone who wasn't in the last bulk push.
+    LaunchedEffect(address, photo) {
+        if (photo == null && address != null) AvatarStore.requestIfMissing(ctx, address)
     }
 
     Box(

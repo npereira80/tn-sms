@@ -446,6 +446,7 @@ class Repository(private val app: Context) {
     fun fullResync() {
         scope.launch {
             db.wipe()
+            AvatarStore.clear(app)   // photos re-arrive from the phone
             _chats.value = emptyList()
             _status.value = Status.FirstSync
             syncAll(full = true)
