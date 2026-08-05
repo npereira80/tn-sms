@@ -47,6 +47,10 @@ private val IMESSAGE_BLUE = Color(0xFF0A84FF)
 private val SMS_GREEN = Color(0xFF34C759)
 private val RECEIVED = Color(0xFF3A3A3C)
 
+/** header + messages + optional mode chip + reply chip */
+private fun itemCountFor(messageCount: Int, supportsBoth: Boolean): Int =
+    1 + messageCount + (if (supportsBoth) 1 else 0) + 1
+
 @Composable
 fun ThreadScreen(repo: Repository, chat: UiChat) {
     var messages by remember { mutableStateOf<List<UiMessage>>(emptyList()) }
@@ -58,6 +62,13 @@ fun ThreadScreen(repo: Repository, chat: UiChat) {
         while (isActive) {
             messages = repo.thread(chat)
             delay(4000)
+        }
+    }
+
+    // Open on the LATEST message (and follow new arrivals) instead of the oldest.
+    LaunchedEffect(chat.key, messages.size) {
+        if (messages.isNotEmpty()) {
+            listState.scrollToItem(itemCountFor(messages.size, chat.supportsBoth) - 1)
         }
     }
 
@@ -84,7 +95,7 @@ fun ThreadScreen(repo: Repository, chat: UiChat) {
     }
 
     ScalingLazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().rotaryScroll(listState),
         state = listState,
     ) {
         item { ListHeader { Text(chat.title, maxLines = 1) } }
@@ -106,11 +117,16 @@ fun ThreadScreen(repo: Repository, chat: UiChat) {
         }
 
         item {
+            // Reply button carries the service colour: green for SMS, blue for iMessage.
+            val tint = if (mode == Service.IMESSAGE) IMESSAGE_BLUE else SMS_GREEN
             Chip(
                 modifier = Modifier.fillMaxWidth(),
                 onClick = startReply,
-                colors = ChipDefaults.primaryChipColors(),
-                label = { Text("Reply" + if (!chat.supportsBoth) " · ${if (mode == Service.IMESSAGE) "iMessage" else "SMS"}" else "") },
+                colors = ChipDefaults.primaryChipColors(
+                    backgroundColor = tint,
+                    contentColor = Color.White,
+                ),
+                label = { Text("Reply · ${if (mode == Service.IMESSAGE) "iMessage" else "SMS"}") },
             )
         }
     }
@@ -124,7 +140,11 @@ private fun MessageBubble(m: UiMessage, repo: Repository) {
         else -> SMS_GREEN
     }
     Column(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+            // Inset the opposite edge so sent/received are easy to tell apart.
+            .padding(end = if (m.fromMe) 0.dp else 10.dp, start = if (m.fromMe) 10.dp else 0.dp),
         horizontalAlignment = if (m.fromMe) Alignment.End else Alignment.Start,
     ) {
         m.imageUrl?.let { url ->
