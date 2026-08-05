@@ -19,7 +19,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import java.io.File
 
 enum class Status { NeedsConfig, FirstSync, Ready }
@@ -147,9 +146,11 @@ class Repository(private val app: Context) {
     }
 
     private suspend fun syncAll(full: Boolean) {
-        if (syncMutex.isLocked) return
+        // tryLock (not isLocked + withLock): the old form could return between
+        // the check and the lock, and left the "Syncing…" flag unmanaged.
+        if (!syncMutex.tryLock()) return
         val firstRun = !db.firstSyncDone
-        syncMutex.withLock {
+        try {
             _syncing.value = true
             try {
                 // The visible part is deliberately just two requests: the SMS
@@ -191,6 +192,8 @@ class Repository(private val app: Context) {
             } finally {
                 _syncing.value = false
             }
+        } finally {
+            syncMutex.unlock()
         }
     }
 

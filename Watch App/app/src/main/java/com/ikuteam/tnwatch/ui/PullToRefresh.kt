@@ -36,14 +36,18 @@ fun Modifier.pullToRefresh(
                 if (source != NestedScrollSource.Drag) return Offset.Zero
                 if (kotlin.math.abs(available.y) <= kotlin.math.abs(available.x)) return Offset.Zero
 
-                val atTop = state.centerItemIndex <= 0 && state.centerItemScrollOffset <= 0
+                // "At top" must be canScrollBackward, NOT centerItemIndex == 0:
+                // in a ScalingLazyColumn the *centred* item at scroll-top is a
+                // couple of items in, so the old check never became true and
+                // pull-to-refresh never fired at all.
+                val atTop = !state.canScrollBackward
                 if (atTop && available.y > 0f) {
                     overscroll += available.y
-                    if (!fired && overscroll > 200f) {
+                    if (!fired && overscroll > 90f) {
                         fired = true
                         onRefresh()
                     }
-                } else {
+                } else if (!atTop) {
                     overscroll = 0f
                     fired = false
                 }
