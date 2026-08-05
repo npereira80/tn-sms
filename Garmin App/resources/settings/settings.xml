@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  What you can edit in Garmin Connect Mobile ▸ this app ▸ Settings.
+  Preset replies are free text there, which is how Portuguese replies get onto a
+  watch that has no keyboard.
+-->
+<settings>
+    <setting propertyKey="@Properties.syncUrl" title="@Strings.SettingSyncUrl">
+        <settingConfig type="alphaNumeric" maxLength="120"/>
+    </setting>
+    <setting propertyKey="@Properties.syncSecret" title="@Strings.SettingSyncSecret">
+        <settingConfig type="alphaNumeric" maxLength="120"/>
+    </setting>
+
+    <setting propertyKey="@Properties.reply1" title="@Strings.SettingReply1">
+        <settingConfig type="alphaNumeric" maxLength="120"/>
+    </setting>
+    <setting propertyKey="@Properties.reply2" title="@Strings.SettingReply2">
+        <settingConfig type="alphaNumeric" maxLength="120"/>
+    </setting>
+    <setting propertyKey="@Properties.reply3" title="@Strings.SettingReply3">
+        <settingConfig type="alphaNumeric" maxLength="120"/>
+    </setting>
+    <setting propertyKey="@Properties.reply4" title="@Strings.SettingReply4">
+        <settingConfig type="alphaNumeric" maxLength="120"/>
+    </setting>
+    <setting propertyKey="@Properties.reply5" title="@Strings.SettingReply5">
+        <settingConfig type="alphaNumeric" maxLength="120"/>
+    </setting>
+    <setting propertyKey="@Properties.reply6" title="@Strings.SettingReply6">
+        <settingConfig type="alphaNumeric" maxLength="120"/>
+    </setting>
+</settings>

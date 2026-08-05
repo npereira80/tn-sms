@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<!--
+  Bubbles for Garmin (Connect IQ).
+
+  Read your merged SMS inbox on the watch and answer with preset replies.
+  Connect IQ gives third-party apps no keyboard or dictation, so free-text
+  replies (as on the Wear OS app) are not possible here — see README.
+
+  NOTE: adjust <iq:products> to whatever your installed SDK lists. Device ids
+  change between SDK releases; "venu4" is what the Venu 4 uses at time of
+  writing, and the others are kept so the app can be tried on a simulator you
+  already have.
+-->
+<iq:manifest version="3" xmlns:iq="http://www.garmin.com/xml/connectiq">
+    <iq:application
+        entry="TnApp"
+        id="1c53d80690804bbba0ceace05c78a90d"
+        launcherIcon="@Drawables.LauncherIcon"
+        name="@Strings.AppName"
+        type="watch-app"
+        minApiLevel="3.2.0">
+
+        <iq:products>
+            <iq:product id="venu4"/>
+            <iq:product id="venu3"/>
+            <iq:product id="venu3s"/>
+            <iq:product id="venu2"/>
+            <iq:product id="venu2s"/>
+            <iq:product id="venu2plus"/>
+            <iq:product id="venusq2"/>
+            <iq:product id="venusq2m"/>
+            <iq:product id="fenix7"/>
+            <iq:product id="epix2"/>
+        </iq:products>
+
+        <iq:permissions>
+            <!-- Web requests go out through the phone's Garmin Connect app. -->
+            <iq:uses-permission id="Communications"/>
+        </iq:permissions>
+
+        <iq:languages>
+            <iq:language>eng</iq:language>
+        </iq:languages>
+    </iq:application>
+</iq:manifest>

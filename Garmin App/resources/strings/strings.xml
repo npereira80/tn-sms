@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string id="AppName">Bubbles</string>
+
+    <!-- Status / empty states -->
+    <string id="Loading">A carregar…</string>
+    <string id="NoChats">Sem conversas</string>
+    <string id="NoMessages">Sem mensagens</string>
+    <string id="NoConfig">Configure o servidor na app Garmin Connect</string>
+    <string id="Offline">Sem ligação ao telefone</string>
+    <string id="ServerError">Servidor indisponível</string>
+    <string id="Sending">A enviar…</string>
+    <string id="Sent">Enviada</string>
+    <string id="SendFailed">Falhou o envio</string>
+    <string id="CannotReply">Não é possível responder</string>
+    <string id="Messages">Mensagens</string>
+    <string id="Reply">Responder</string>
+    <string id="Refresh">Atualizar</string>
+
+    <!-- Settings labels (shown in Garmin Connect Mobile) -->
+    <string id="SettingSyncUrl">Servidor SMS (https)</string>
+    <string id="SettingSyncSecret">Segredo de registo</string>
+    <string id="SettingReply1">Resposta 1</string>
+    <string id="SettingReply2">Resposta 2</string>
+    <string id="SettingReply3">Resposta 3</string>
+    <string id="SettingReply4">Resposta 4</string>
+    <string id="SettingReply5">Resposta 5</string>
+    <string id="SettingReply6">Resposta 6</string>
+
+    <!-- Default preset replies (Portuguese) -->
+    <string id="DefaultReply1">OK</string>
+    <string id="DefaultReply2">Obrigado!</string>
+    <string id="DefaultReply3">Estou a caminho</string>
+    <string id="DefaultReply4">Ligo já</string>
+    <string id="DefaultReply5">Não posso falar agora</string>
+    <string id="DefaultReply6">Sim</string>
+</resources>

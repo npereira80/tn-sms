@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  App properties. Server details and the preset replies are edited in Garmin
+  Connect Mobile (Connect IQ apps have no on-watch text entry), and the bearer
+  token is written by the app itself after it registers with the server.
+-->
+<properties>
+    <property id="syncUrl" type="string"></property>
+    <property id="syncSecret" type="string"></property>
+    <property id="syncToken" type="string"></property>
+
+    <property id="reply1" type="string">OK</property>
+    <property id="reply2" type="string">Obrigado!</property>
+    <property id="reply3" type="string">Estou a caminho</property>
+    <property id="reply4" type="string">Ligo já</property>
+    <property id="reply5" type="string">Não posso falar agora</property>
+    <property id="reply6" type="string"></property>
+</properties>

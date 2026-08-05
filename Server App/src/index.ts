@@ -13,6 +13,7 @@ import {
 } from "./messages.js";
 import { enqueueSend, updateSendStatus, redeliverQueued } from "./send.js";
 import { storeMedia, mediaExists, mediaPath, mimeFor, isValidHash } from "./media.js";
+import { watchChats, watchMessages } from "./watch.js";
 import fs from "node:fs";
 
 const app = express();
@@ -82,6 +83,18 @@ app.post("/ingest", auth, (req: AuthedRequest, res) => {
 app.get("/delta", auth, (req, res) => {
   const since = Number(req.query.since ?? 0);
   res.json(delta(Number.isFinite(since) ? since : 0));
+});
+
+// ---- compact watch API (Garmin Connect IQ) --------------------------------
+// Connect IQ caps web responses at roughly 32KB and charges double that in
+// memory to parse them, so these return short-key, hard-capped payloads instead
+// of /delta. See watch.ts.
+app.get("/watch/chats", auth, (req, res) => {
+  res.json(watchChats(req.query.limit));
+});
+
+app.get("/watch/messages", auth, (req, res) => {
+  res.json(watchMessages(String(req.query.conversationId ?? ""), req.query.limit));
 });
 
 // Everything this conversation currently holds, so a client can drop local
