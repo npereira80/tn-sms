@@ -41,6 +41,10 @@ import com.ikuteam.tnwatch.data.Repository
 import com.ikuteam.tnwatch.data.Service
 import com.ikuteam.tnwatch.data.UiChat
 import com.ikuteam.tnwatch.data.UiMessage
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 private const val KEY_REPLY = "tnwatch_reply"
 private val IMESSAGE_BLUE = Color(0xFF0A84FF)
@@ -170,6 +174,26 @@ fun ThreadScreen(repo: Repository, chat: UiChat) {
     }
 }
 
+/**
+ * Compact timestamp for a bubble: time alone for today, day + time this week,
+ * date + time beyond that. Uses the watch's locale and 12/24h preference.
+ */
+private fun formatMessageTime(timestamp: Long): String {
+    if (timestamp <= 0L) return ""
+    val now = Calendar.getInstance()
+    val then = Calendar.getInstance().apply { timeInMillis = timestamp }
+    val sameDay = now.get(Calendar.YEAR) == then.get(Calendar.YEAR) &&
+        now.get(Calendar.DAY_OF_YEAR) == then.get(Calendar.DAY_OF_YEAR)
+    val withinWeek = now.timeInMillis - timestamp in 0..(6L * 24 * 60 * 60 * 1000)
+    val pattern = when {
+        sameDay -> "HH:mm"
+        withinWeek -> "EEE HH:mm"
+        now.get(Calendar.YEAR) == then.get(Calendar.YEAR) -> "d MMM HH:mm"
+        else -> "d MMM yyyy HH:mm"
+    }
+    return SimpleDateFormat(pattern, Locale.getDefault()).format(Date(timestamp))
+}
+
 /** header + messages + reply buttons (or the read-only note) */
 private fun itemCount(messageCount: Int, chat: UiChat): Int {
     var n = 1 + messageCount
@@ -233,12 +257,12 @@ private fun MessageBubble(
                     .padding(horizontal = 10.dp, vertical = 6.dp),
             )
         }
-        if (m.pending) {
-            Text(
-                text = "Sending…",
-                style = MaterialTheme.typography.caption3,
-                color = Color(0xFF9A9AA0),
-            )
-        }
+        // Small timestamp under each bubble, so it's clear when it arrived / was sent.
+        Text(
+            text = if (m.pending) "Sending…" else formatMessageTime(m.timestamp),
+            style = MaterialTheme.typography.caption3,
+            color = Color(0xFF8E8E93),
+            modifier = Modifier.padding(top = 1.dp, start = 4.dp, end = 4.dp),
+        )
     }
 }

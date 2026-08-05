@@ -290,14 +290,43 @@ class Repository(private val app: Context) {
         }
         _net.value = _net.value.copy(bbOk = list != null || !_net.value.bbConfigured)
         if (list == null) return emptyList()
-        bbChats = list
-        for (chat in list) {
+        // BlueBubbles exposes every Messages.app thread, SMS-forwarded ones
+        // included. Treating those as iMessage put a "Reply · iMessage" button on
+        // threads that aren't iMessage at all (OTP short codes, for instance), so
+        // keep only real iMessage chats — SMS already reaches us via the sync
+        // server.
+        val imessage = list.filter { it.isIMessage }
+        bbChats = imessage
+        for (chat in imessage) {
             val isGroup = (chat.style == 43) || chat.participants.size > 1
             val participant = chat.chatIdentifier ?: chat.participants.firstOrNull()?.address ?: continue
             val key = if (isGroup) chat.guid else Addr.normalize(participant)
             upsertBbChat(chat, key, participant, isGroup)
         }
-        return list
+        if (list.isNotEmpty()) {
+            pruneMissingBbChats(imessage.mapTo(HashSet()) { it.guid })
+        }
+        return imessage
+    }
+
+    /**
+     * Drops the iMessage side of chats BlueBubbles no longer offers as iMessage —
+     * including rows an earlier build wrongly merged from SMS-forwarded threads.
+     * A chat that still has SMS keeps its row; an iMessage-only one is removed.
+     */
+    private fun pruneMissingBbChats(validGuids: Set<String>) {
+        var changed = false
+        for (chat in db.chats()) {
+            val guid = chat.bbChatGuid ?: continue
+            if (guid in validGuids) continue
+            if (chat.smsAddress != null) {
+                db.upsertChats(listOf(chat.copy(bbChatGuid = null, services = setOf(Service.SMS))))
+            } else {
+                db.deleteChat(chat.key)
+            }
+            changed = true
+        }
+        if (changed) _revision.value = _revision.value + 1
     }
 
     /**

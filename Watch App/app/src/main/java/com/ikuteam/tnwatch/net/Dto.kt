@@ -127,9 +127,19 @@ data class BBChat(
     val chatIdentifier: String? = null,
     val displayName: String? = null,
     val style: Int? = null, // 43 = group, 45 = 1:1
+    /** "iMessage" or "SMS": BlueBubbles serves every Messages.app thread,
+     *  including SMS-forwarded ones, which must not be treated as iMessage. */
+    val service: String? = null,
     val participants: List<BBHandle> = emptyList(),
     val lastMessage: BBMessage? = null,
-)
+) {
+    /** True unless BlueBubbles explicitly says this thread isn't iMessage. */
+    val isIMessage: Boolean
+        get() {
+            val s = service ?: guid.substringBefore(';', "").ifBlank { null }
+            return s == null || s.equals("iMessage", ignoreCase = true)
+        }
+}
 
 @Serializable
 data class BBChatQueryResponse(val data: List<BBChat> = emptyList())
