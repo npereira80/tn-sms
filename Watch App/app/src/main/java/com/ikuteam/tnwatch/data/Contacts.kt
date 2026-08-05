@@ -91,8 +91,12 @@ object Contacts {
                     rows++
                     val name = c.getString(0)?.takeIf { it.isNotBlank() } ?: continue
                     val number = c.getString(1) ?: continue
-                    val photo = (if (c.isNull(2)) null else c.getString(2))
-                        ?: (if (c.isNull(3)) null else c.getString(3))
+                    // Thumbnail FIRST: it lives in the local contacts DB, while
+                    // PHOTO_URI points at a display photo that is often not
+                    // synced to the watch (non-null but unreadable → blank
+                    // avatar). A thumbnail is plenty for a 40dp circle.
+                    val photo = (if (c.isNull(3)) null else c.getString(3))
+                        ?: (if (c.isNull(2)) null else c.getString(2))
                     if (photo != null) withPhoto++
                     val digits = number.filter { it.isDigit() }
                     if (digits.length < 6) continue
