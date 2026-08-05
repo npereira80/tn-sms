@@ -6,7 +6,6 @@
     <string id="Loading">A carregar…</string>
     <string id="NoChats">Sem conversas</string>
     <string id="NoMessages">Sem mensagens</string>
-    <string id="NoConfig">Configure o servidor na app Garmin Connect</string>
     <string id="Offline">Sem ligação ao telefone</string>
     <string id="ServerError">Servidor indisponível</string>
     <string id="Sending">A enviar…</string>
@@ -15,11 +14,12 @@
     <string id="CannotReply">Não é possível responder</string>
     <string id="Messages">Mensagens</string>
     <string id="Reply">Responder</string>
+    <string id="ReplySms">Responder por SMS</string>
+    <string id="ReplyIMessage">Responder por iMessage</string>
+    <string id="NoPhone">Telefone fora de alcance</string>
     <string id="Refresh">Atualizar</string>
 
     <!-- Settings labels (shown in Garmin Connect Mobile) -->
-    <string id="SettingSyncUrl">Servidor SMS (https)</string>
-    <string id="SettingSyncSecret">Segredo de registo</string>
     <string id="SettingReply1">Resposta 1</string>
     <string id="SettingReply2">Resposta 2</string>
     <string id="SettingReply3">Resposta 3</string>

@@ -1,84 +1,104 @@
 # Bubbles for Garmin (Connect IQ)
 
-Read your SMS inbox on a Garmin watch (Venu 4 and friends) and answer with preset
-replies. Written in Monkey C for Connect IQ.
+Read your merged **SMS + iMessage** inbox on a Garmin watch (Venu 4 and friends)
+and answer with preset replies. Monkey C, Connect IQ.
 
-**This is not a port of the Wear OS app.** Garmin doesn't run Android, so none of
-the Kotlin/Compose code applies — this is a separate, deliberately small app, and
-the platform can't do everything the Wear OS one does. The honest list is below.
+**Not a port of the Wear OS app.** Garmin doesn't run Android, so none of the
+Kotlin/Compose code applies, and the platform genuinely can't do everything the
+Wear OS app does. Honest list below.
+
+## Where the data comes from
+
+The watch talks **only to the Bubbles Android app over Bluetooth** — no server, no
+internet, no credentials on the watch.
+
+```
+Garmin watch  ──Bluetooth (Connect IQ)──►  Bubbles Android app
+   PhoneApi.mc                               GarminBridge.kt
+                                                  ▲
+                                                  │ snapshot (20 chats × 15 msgs)
+                                             garmin_snapshot.dart
+                                                  ▲
+                                        SMS (SIM + sync server) + iMessage (BlueBubbles)
+```
+
+The phone app already merges both services, so this is the only path that gives
+the watch iMessage at all. It also avoids the sync server's HTTP API, which the
+watch can't use: Connect IQ fails near 32KB of JSON and needs more than double
+that in memory to parse it.
+
+Requests can arrive while the Flutter engine is asleep, so Kotlin answers from a
+**pre-built snapshot** Dart hands over (first sync), refreshed as messages arrive
+(then only what's new). Replies are sliced into small messages, because one
+Bluetooth message carries only a couple of KB.
 
 ## What it does
 
-- Inbox: the 20 most recent conversations from the sync server, unread marked `•`.
-- Thread: the 20 most recent messages, oldest first, each with a short timestamp
-  and `→` for the ones you sent. MMS shows as `[foto]`.
-- Reply: pick from **preset replies** you define in Garmin Connect Mobile (so they
-  can be Portuguese). Sent through the sync server, which hands it to the phone
-  holding the SIM — exactly like the Wear OS app's SMS path.
-- One-way senders (OTP codes, banks) show "Não é possível responder" instead of a
-  reply option, same rule as the phone and Wear apps.
-- Small cache: the last inbox and last thread are persisted, so the list appears
-  instantly and you can still read something out of Bluetooth range.
+- Inbox: 20 most recent conversations with contact names resolved by the phone,
+  unread marked `•`.
+- Thread: last 15 messages, oldest first, short timestamp, `→` on your own, MMS
+  shown as `[foto]`.
+- Reply: **Responder por iMessage** and/or **Responder por SMS**, whichever the
+  thread supports, then pick a preset. The phone sends it over the SIM or
+  BlueBubbles using its normal send path.
+- One-way senders (OTP codes, banks) show "Não é possível responder", same rule as
+  the phone, Mac and Wear OS apps.
+- Small cache: last inbox and last thread persist, so the list appears instantly
+  and stays readable when the phone is out of range.
 
 ## Platform limits (why features are missing)
 
 | Wear OS app | Garmin | Why |
 |---|---|---|
-| Free-text replies (Gboard, voice) | Preset replies only | Connect IQ exposes **no keyboard and no dictation** to third-party apps. Garmin's own quick replies are system-level and not available to us. |
-| iMessage send/receive | Not included | BlueBubbles' `chat/query` returns everything at once; a response that size can't be parsed on-watch. It needs a compact server-side proxy first (see below). |
-| Photos, contact avatars | `[foto]` marker | Image fetching goes through Garmin's proxy with tight constraints, and there's no contacts access on the watch. |
-| Full offline history | Last snapshot only | No SQLite, and app storage is small. |
-| Live updates (WebSocket) | On open + manual refresh | No sockets, and background runs are short with very little memory. |
-| Works on Wi-Fi without the phone | Needs the phone in range | Every request goes out through Garmin Connect over Bluetooth (`-104` when it's away). |
-| Contact names | Phone numbers | The watch can't read contacts, and the sync server stores numbers. |
-
-Server URL must be **HTTPS** — the watch refuses plain HTTP. The Cloudflare tunnel
-already satisfies this.
+| Free-text replies (Gboard, voice) | Preset replies only | Connect IQ exposes **no keyboard and no dictation** to third-party apps. Garmin's own quick replies are system-level and off-limits to us. |
+| Photos, avatars | `[foto]` marker | Image transfer is heavily constrained and there's no contacts access on-watch. |
+| Full offline history | Last snapshot only | No SQLite; app storage is tiny. |
+| Live push | Nudge + refresh | The phone signals "something arrived" and the watch re-asks; there's no socket, and background runs are short with little memory. |
+| Works away from the phone | Needs the phone in Bluetooth range | The phone *is* the data source here. |
+| Delete messages/chats | Not implemented | Could be added to the protocol later. |
 
 ## Setup
 
-1. Build and side-load (see below), then open the app once.
-2. In **Garmin Connect Mobile ▸ Connect IQ ▸ Bubbles ▸ Settings**, fill in:
-   - **Servidor SMS (https)** — e.g. `https://sms.tn-services.net`
-   - **Segredo de registo** — the server's registration secret (same one the
-     phone app uses). The watch registers itself and stores a token.
-   - **Resposta 1…6** — your preset replies. Blank ones are skipped.
-3. Reopen the app. The inbox loads.
+1. Build and side-load the watch app (below), and install the phone app built from
+   this repo (it contains `GarminBridge.kt`).
+2. Garmin Connect Mobile must be installed and paired — it carries the Bluetooth
+   channel.
+3. In **Garmin Connect Mobile ▸ Connect IQ ▸ Bubbles ▸ Settings**, edit **Resposta
+   1…6**. Blank ones are skipped. Defaults: OK, Obrigado!, Estou a caminho, Ligo
+   já, Não posso falar agora.
+4. Open the phone app once, then open the watch app.
 
 ## Build
 
 Needs the Connect IQ SDK and the VS Code Monkey C extension.
 
 ```bash
-# from this directory, with the SDK's bin on PATH
 monkeyc -f monkey.jungle -d venu4 -o bin/Bubbles.prg -y <your-developer-key.der>
 ```
 
-Then either run it in the simulator (`connectiq` + `monkeydo bin/Bubbles.prg venu4`)
-or copy the `.prg` to the watch's `GARMIN/APPS` folder over USB.
+Then run in the simulator (`connectiq`, then `monkeydo bin/Bubbles.prg venu4`) or
+copy the `.prg` to `GARMIN/APPS` over USB.
 
-Two things to check first:
+Check two things first:
 
-- **Device id.** `venu4` is what the Venu 4 uses at time of writing; if your SDK
-  disagrees, adjust `-d` and the `<iq:products>` list in `manifest.xml`.
-- **Developer key.** Generate one in VS Code (*Connect IQ: Generate a Developer
-  Key*) if you don't have a `.der` yet.
+- **Device id** — `venu4` is current at time of writing; if your SDK disagrees,
+  adjust `-d` and `<iq:products>` in `manifest.xml`.
+- **Developer key** — generate one in VS Code (*Connect IQ: Generate a Developer
+  Key*) if you don't have a `.der`.
 
-## Server API used
+The app id in `manifest.xml` must stay in sync with `WATCH_APP_ID` in
+`GarminBridge.kt` — that's how the phone addresses this app.
 
-Compact, short-key endpoints added for this app (see `Server App/src/watch.ts`),
-because Connect IQ fails at roughly 32KB of JSON and parsing costs more than
-double that in memory:
+## Phone-side pieces
 
-- `GET /watch/chats?limit=20` → `{ c: [ {i,a,s,t,u} ] }`
-- `GET /watch/messages?conversationId=…&limit=20` → `{ m: [ {i,d,b,t,p} ] }`
-- `POST /send`, `POST /delete`, `POST /devices/register` — shared with the other clients.
+- `android/…/garmin/GarminBridge.kt` — Connect IQ Mobile SDK: registers for app
+  events, answers `chats` / `msgs` / `send`, slices replies.
+- `lib/services/backend/watch/garmin_snapshot.dart` — builds the snapshot, pushes
+  it over a MethodChannel, and performs replies with the app's normal send path.
+- Dependency: `com.garmin.connectiq:ciq-companion-app-sdk` (Maven Central).
 
-## Possible next steps
+## Not done yet
 
-- **iMessage**: add a compact proxy on the sync server (it already runs beside
-  BlueBubbles on the Mac mini) exposing `/watch/imessage/*` in the same shape.
-  Then the Garmin app can offer "Reply · iMessage" too.
-- **Delete**: `Api.deleteConversation` is implemented but not yet wired to a menu
-  action.
-- **Mark read**: `POST /read` is not called yet.
+- Delete from the watch.
+- Marking a thread read from the watch.
+- Sending photos (no picker, and outbound MMS from a watch isn't worth the memory).

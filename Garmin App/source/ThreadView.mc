@@ -1,8 +1,7 @@
-using Toybox.Application;
 using Toybox.Lang;
 using Toybox.WatchUi;
 
-//! One conversation: messages oldest-first, then a "Responder" row.
+//! One conversation: messages oldest-first, then the reply options.
 class ThreadMenu extends WatchUi.Menu2 {
     private var _visible as Lang.Boolean = false;
 
@@ -27,62 +26,60 @@ class ThreadMenu extends WatchUi.Menu2 {
 
 class ThreadController {
     private var _chat as Lang.Dictionary;
+    private var _inbox as ChatListController;
     private var _messages as Lang.Array = [];
     private var _menu as ThreadMenu or Null = null;
-    private var _loading as Lang.Boolean = false;
 
-    function initialize(chat as Lang.Dictionary) {
+    function initialize(chat as Lang.Dictionary, inbox as ChatListController) {
         _chat = chat;
-        var cached = Store.thread(conversationId());
+        _inbox = inbox;
+        var cached = Store.thread(key());
         if (cached != null) {
             _messages = cached;
         }
     }
 
-    function conversationId() as Lang.String {
-        var id = _chat.get("i");
-        return id == null ? "" : id.toString();
-    }
-
-    function address() as Lang.String {
-        var a = _chat.get("a");
-        if (a == null) {
-            return conversationId();
-        }
-        return a.toString();
+    function key() as Lang.String {
+        return Format.chatKey(_chat);
     }
 
     function title() as Lang.String {
         return Format.chatTitle(_chat);
     }
 
-    //! Can we answer this at all? Alphanumeric senders (OTP codes, banks) are
-    //! one-way, exactly as on the phone and Wear OS apps.
-    function canReply() as Lang.Boolean {
-        return Format.isReplyable(address());
+    function canSms() as Lang.Boolean {
+        return Format.hasSms(_chat) && Format.isReplyable(_chat);
+    }
+
+    function canIMessage() as Lang.Boolean {
+        return Format.hasIMessage(_chat) && Format.isReplyable(_chat);
     }
 
     function buildMenu(status as Lang.String or Null) as ThreadMenu {
         var menu = new ThreadMenu(title());
-
         if (status != null) {
             menu.addItem(new WatchUi.MenuItem(status, null, "status", {}));
         }
         for (var i = 0; i < _messages.size(); i++) {
             var m = _messages[i];
-            var body = Format.messageBody(m);
-            var meta = Format.messageMeta(m);
-            menu.addItem(new WatchUi.MenuItem(body, meta, "m" + i.toString(), {}));
+            menu.addItem(new WatchUi.MenuItem(
+                Format.messageBody(m), Format.messageMeta(m), "m" + i.toString(), {}));
         }
         if (status == null && _messages.size() == 0) {
             menu.addItem(new WatchUi.MenuItem(
                 WatchUi.loadResource(Rez.Strings.NoMessages), null, "status", {}));
         }
 
-        if (canReply()) {
+        // One entry per service the thread supports, mirroring the Wear OS app.
+        if (canIMessage()) {
             menu.addItem(new WatchUi.MenuItem(
-                WatchUi.loadResource(Rez.Strings.Reply), null, "reply", {}));
-        } else {
+                WatchUi.loadResource(Rez.Strings.ReplyIMessage), null, "r_imsg", {}));
+        }
+        if (canSms()) {
+            menu.addItem(new WatchUi.MenuItem(
+                WatchUi.loadResource(Rez.Strings.ReplySms), null, "r_sms", {}));
+        }
+        if (!canSms() && !canIMessage()) {
             menu.addItem(new WatchUi.MenuItem(
                 WatchUi.loadResource(Rez.Strings.CannotReply), null, "status", {}));
         }
@@ -99,43 +96,28 @@ class ThreadController {
     }
 
     function refresh() as Void {
-        if (_loading || !Config.isConfigured()) {
-            return;
-        }
-        _loading = true;
-        Api.messages(conversationId(), 20, method(:onMessages));
+        PhoneApi.onMessages = method(:onMessages);
+        PhoneApi.onNew = method(:refresh);
+        PhoneApi.requestMessages(key());
     }
 
-    function onMessages(code as Lang.Number, data) as Void {
-        _loading = false;
-        if (code == 200 && data != null && data instanceof Lang.Dictionary) {
-            var list = data.get("m");
-            if (list instanceof Lang.Array) {
-                _messages = list;
-                Store.setThread(conversationId(), list);
-                reload(null);
-                return;
-            }
-        }
-        if (_messages.size() == 0) {
-            reload(Format.errorText(code));
-        }
+    function onMessages(list as Lang.Array) as Void {
+        _messages = list;
+        Store.setThread(key(), list);
+        reload(list.size() == 0 ? WatchUi.loadResource(Rez.Strings.NoMessages) : null);
     }
 
-    //! Sends a preset reply. The server hands it to the phone holding the SIM.
-    function sendPreset(text as Lang.String) as Void {
+    //! Hands the phone a preset reply; it sends over the SIM or BlueBubbles.
+    function sendPreset(service as Lang.String, body as Lang.String) as Void {
         reload(WatchUi.loadResource(Rez.Strings.Sending));
-        Api.send(address(), text, method(:onSent));
+        PhoneApi.sendReply(key(), service, body);
+        // The phone rebuilds its snapshot after sending, so ask again shortly.
+        refresh();
     }
 
-    function onSent(code as Lang.Number, data) as Void {
-        if (code == 200) {
-            // Pull the thread again so the sent message shows up as the server
-            // has it (the phone ingests it right after transmitting).
-            refresh();
-        } else {
-            reload(WatchUi.loadResource(Rez.Strings.SendFailed));
-        }
+    //! Give the inbox its callbacks back when this thread closes.
+    function release() as Void {
+        _inbox.claim();
     }
 }
 
@@ -153,13 +135,17 @@ class ThreadDelegate extends WatchUi.Menu2InputDelegate {
             return;
         }
         var key = id.toString();
-        if (key.equals("reply")) {
-            var menu = ReplyMenu.build(_thread);
-            WatchUi.pushView(menu, new ReplyDelegate(_thread), WatchUi.SLIDE_LEFT);
+        if (key.equals("r_sms")) {
+            WatchUi.pushView(ReplyMenu.build(), new ReplyDelegate(_thread, "sms"), WatchUi.SLIDE_LEFT);
+        } else if (key.equals("r_imsg")) {
+            WatchUi.pushView(ReplyMenu.build(), new ReplyDelegate(_thread, "imsg"), WatchUi.SLIDE_LEFT);
         } else if (key.equals("status")) {
             _thread.refresh();
         }
-        // Tapping a message does nothing: there's no room to expand it usefully,
-        // and Connect IQ has no text selection.
+    }
+
+    function onBack() as Void {
+        _thread.release();
+        Menu2InputDelegate.onBack();
     }
 }

@@ -5,10 +5,10 @@ using Toybox.WatchUi;
 //!
 //! Connect IQ gives third-party apps no keyboard and no dictation, so this is the
 //! only way to answer from a Garmin watch. The texts come from the app's settings
-//! in Garmin Connect Mobile, which is also how they can be written in Portuguese.
+//! in Garmin Connect Mobile, which is also how they can be Portuguese.
 module ReplyMenu {
 
-    function build(thread as ThreadController) as WatchUi.Menu2 {
+    function build() as WatchUi.Menu2 {
         var menu = new WatchUi.Menu2({ :title => WatchUi.loadResource(Rez.Strings.Reply) });
         var replies = Config.replies();
         for (var i = 0; i < replies.size(); i++) {
@@ -20,10 +20,12 @@ module ReplyMenu {
 
 class ReplyDelegate extends WatchUi.Menu2InputDelegate {
     private var _thread as ThreadController;
+    private var _service as Lang.String;
 
-    function initialize(thread as ThreadController) {
+    function initialize(thread as ThreadController, service as Lang.String) {
         Menu2InputDelegate.initialize();
         _thread = thread;
+        _service = service;
     }
 
     function onSelect(item as WatchUi.MenuItem) as Void {
@@ -36,8 +38,8 @@ class ReplyDelegate extends WatchUi.Menu2InputDelegate {
         if (index == null || index < 0 || index >= replies.size()) {
             return;
         }
-        // Back to the thread first, so the send status is visible there.
+        // Back to the thread first, so the send status shows there.
         WatchUi.popView(WatchUi.SLIDE_RIGHT);
-        _thread.sendPreset(replies[index]);
+        _thread.sendPreset(_service, replies[index]);
     }
 }

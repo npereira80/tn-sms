@@ -1,12 +1,12 @@
 using Toybox.Lang;
-using Toybox.System;
 using Toybox.Time;
 using Toybox.Time.Gregorian;
 using Toybox.WatchUi;
 
-//! Display helpers. The server sends short keys to keep responses small:
-//!   chat:    i=id  a=address  s=snippet  t=ts(ms)  u=unread
-//!   message: i=id  d=1 if from me  b=body  t=ts(ms)  p=1 if it had a photo
+//! Display helpers. The phone sends short keys to keep each Bluetooth message
+//! small (see garmin_snapshot.dart):
+//!   chat:    k=key n=name a=address s=snippet t=ts(ms) u=unread sms=1 im=1
+//!   message: d=1 if from me  b=body  t=ts(ms)  p=1 if it was a photo
 module Format {
 
     function text(value) as Lang.String {
@@ -16,25 +16,50 @@ module Format {
         return value.toString();
     }
 
+    function flag(value) as Lang.Boolean {
+        return value != null && value.toString().equals("1");
+    }
+
+    //! Contact name resolved by the phone (the watch can't read contacts).
     function chatTitle(chat as Lang.Dictionary) as Lang.String {
-        // No contact lookup: Connect IQ can't read the phone's contacts, so the
-        // address is the best we have (the sync server stores numbers, not names).
-        var address = chat.get("a");
-        if (address == null) {
-            address = chat.get("i");
+        var name = chat.get("n");
+        if (name != null && name.toString().length() > 0) {
+            return name.toString();
         }
-        return text(address);
+        var address = chat.get("a");
+        if (address != null) {
+            return address.toString();
+        }
+        return text(chat.get("k"));
+    }
+
+    function chatKey(chat as Lang.Dictionary) as Lang.String {
+        return text(chat.get("k"));
     }
 
     function isUnread(chat as Lang.Dictionary) as Lang.Boolean {
-        var u = chat.get("u");
-        return u != null && u.toString().equals("1");
+        return flag(chat.get("u"));
+    }
+
+    function hasSms(chat as Lang.Dictionary) as Lang.Boolean {
+        return flag(chat.get("sms"));
+    }
+
+    function hasIMessage(chat as Lang.Dictionary) as Lang.Boolean {
+        return flag(chat.get("im"));
     }
 
     //! One-way senders (OTP codes, banks) can't be answered on any service.
-    function isReplyable(address as Lang.String) as Lang.Boolean {
+    function isReplyable(chat as Lang.Dictionary) as Lang.Boolean {
+        if (!hasSms(chat) && !hasIMessage(chat)) {
+            return false;
+        }
+        var address = text(chat.get("a"));
         if (address.length() == 0) {
             return false;
+        }
+        if (address.find("@") != null) {
+            return true;   // email handle: iMessage-addressable
         }
         var digits = 0;
         var chars = address.toCharArray();
@@ -51,31 +76,22 @@ module Format {
 
     function messageBody(message as Lang.Dictionary) as Lang.String {
         var body = text(message.get("b"));
-        var photo = message.get("p");
-        if (photo != null && body.length() == 0) {
-            return "[foto]";
-        }
-        if (photo != null) {
-            return "[foto] " + body;
+        if (flag(message.get("p"))) {
+            return body.length() == 0 ? "[foto]" : "[foto] " + body;
         }
         return body;
     }
 
-    //! Sub-label: direction plus a short timestamp.
+    //! Sub-label: "→" for our own messages, plus a short timestamp.
     function messageMeta(message as Lang.Dictionary) as Lang.String {
-        var fromMe = false;
-        var d = message.get("d");
-        if (d != null && d.toString().equals("1")) {
-            fromMe = true;
-        }
         var stamp = shortTime(message.get("t"));
-        if (fromMe) {
+        if (flag(message.get("d"))) {
             return stamp.length() > 0 ? "→ " + stamp : "→";
         }
         return stamp;
     }
 
-    //! HH:MM for today, otherwise DD/MM HH:MM.
+    //! HH:MM today, otherwise DD/MM HH:MM.
     function shortTime(tsMillis) as Lang.String {
         if (tsMillis == null) {
             return "";
@@ -84,22 +100,12 @@ module Format {
         if (seconds <= 0) {
             return "";
         }
-        var moment = new Time.Moment(seconds);
-        var info = Gregorian.info(moment, Time.FORMAT_SHORT);
+        var info = Gregorian.info(new Time.Moment(seconds), Time.FORMAT_SHORT);
         var today = Gregorian.info(Time.now(), Time.FORMAT_SHORT);
         var hhmm = info.hour.format("%02d") + ":" + info.min.format("%02d");
         if (info.year == today.year && info.month == today.month && info.day == today.day) {
             return hhmm;
         }
         return info.day.format("%02d") + "/" + info.month.format("%02d") + " " + hhmm;
-    }
-
-    //! Turns a Communications error code into something readable.
-    function errorText(code as Lang.Number) as Lang.String {
-        if (code == -104) {
-            // BLE_CONNECTION_UNAVAILABLE: nothing works without the phone.
-            return WatchUi.loadResource(Rez.Strings.Offline);
-        }
-        return WatchUi.loadResource(Rez.Strings.ServerError);
     }
 }

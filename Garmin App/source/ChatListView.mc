@@ -1,14 +1,12 @@
-using Toybox.Application;
 using Toybox.Lang;
 using Toybox.WatchUi;
 
-//! Inbox.
+//! Inbox, fed by the phone app over Bluetooth.
 //!
-//! Built on Menu2 so scrolling, touch and physical buttons all come from the
-//! system; hand-drawing a list would be more code and worse on a round screen.
-//! Menu2 can't be emptied reliably across API levels, so each data change builds
-//! a fresh menu and swaps it in — but only while the inbox is actually on screen,
-//! so a late response can't yank the user out of a thread.
+//! Built on Menu2 so scrolling, touch and buttons come from the system. Menu2
+//! can't be emptied reliably across API levels, so each data change builds a
+//! fresh menu and swaps it in — only while the inbox is on screen, so a late
+//! reply can't yank you out of a thread.
 class ChatListMenu extends WatchUi.Menu2 {
     private var _visible as Lang.Boolean = false;
 
@@ -31,10 +29,8 @@ class ChatListMenu extends WatchUi.Menu2 {
     }
 }
 
-//! Holds the inbox state and drives loading.
 class ChatListController {
     private var _chats as Lang.Array = [];
-    private var _loading as Lang.Boolean = false;
     private var _menu as ChatListMenu or Null = null;
 
     function initialize() {
@@ -51,11 +47,14 @@ class ChatListController {
         return _chats[index];
     }
 
-    //! Builds the menu for the current state. `status` shows a single
-    //! informational row instead of the list (loading, error, not configured).
+    //! Take over the phone callbacks (the thread view claims them while open).
+    function claim() as Void {
+        PhoneApi.onChats = method(:onChats);
+        PhoneApi.onNew = method(:refresh);
+    }
+
     function buildMenu(status as Lang.String or Null) as ChatListMenu {
         var menu = new ChatListMenu(WatchUi.loadResource(Rez.Strings.Messages));
-
         if (status != null) {
             menu.addItem(new WatchUi.MenuItem(status, null, "status", {}));
         }
@@ -75,59 +74,33 @@ class ChatListController {
         return menu;
     }
 
-    //! Swap in a rebuilt menu, but only if the inbox is the visible view.
     private function reload(status as Lang.String or Null) as Void {
         var current = _menu;
         if (current == null || !current.isVisible()) {
             return;
         }
-        var menu = buildMenu(status);
-        WatchUi.switchToView(menu, new ChatListDelegate(self), WatchUi.SLIDE_IMMEDIATE);
+        WatchUi.switchToView(buildMenu(status), new ChatListDelegate(self), WatchUi.SLIDE_IMMEDIATE);
     }
 
     function refresh() as Void {
-        if (!Config.isConfigured()) {
-            reload(WatchUi.loadResource(Rez.Strings.NoConfig));
-            return;
-        }
-        if (_loading) {
-            return;
-        }
-        _loading = true;
+        claim();
         if (_chats.size() == 0) {
             reload(WatchUi.loadResource(Rez.Strings.Loading));
         }
-        Api.ensureToken(method(:onToken));
+        PhoneApi.requestChats();
     }
 
-    function onToken(ok as Lang.Boolean) as Void {
-        if (!ok) {
-            _loading = false;
-            reload(WatchUi.loadResource(Rez.Strings.ServerError));
-            return;
-        }
-        Api.chats(20, method(:onChats));
-    }
-
-    function onChats(code as Lang.Number, data) as Void {
-        _loading = false;
-        if (code == 200 && data != null && data instanceof Lang.Dictionary) {
-            var list = data.get("c");
-            if (list instanceof Lang.Array) {
-                _chats = list;
-                Store.setChats(list);
-                reload(null);
-                return;
-            }
-        }
-        // Failed: keep showing the cached list, and only complain if it's empty.
-        if (_chats.size() == 0) {
-            reload(Format.errorText(code));
+    function onChats(list as Lang.Array) as Void {
+        _chats = list;
+        Store.setChats(list);
+        if (list.size() == 0) {
+            reload(WatchUi.loadResource(Rez.Strings.NoChats));
+        } else {
+            reload(null);
         }
     }
 }
 
-//! Input handling for the inbox.
 class ChatListDelegate extends WatchUi.Menu2InputDelegate {
     private var _controller as ChatListController;
 
@@ -139,16 +112,18 @@ class ChatListDelegate extends WatchUi.Menu2InputDelegate {
     function onSelect(item as WatchUi.MenuItem) as Void {
         var id = item.getId();
         if (id == null || id.toString().equals("status")) {
-            _controller.refresh();   // tapping the status row retries
+            _controller.refresh();   // tap the status row to retry
             return;
         }
         var chat = _controller.chatAt(id.toString().toNumber());
         if (chat == null) {
             return;
         }
-        var thread = new ThreadController(chat);
-        WatchUi.pushView(thread.buildMenu(WatchUi.loadResource(Rez.Strings.Loading)),
-            new ThreadDelegate(thread), WatchUi.SLIDE_LEFT);
+        var thread = new ThreadController(chat, _controller);
+        WatchUi.pushView(
+            thread.buildMenu(WatchUi.loadResource(Rez.Strings.Loading)),
+            new ThreadDelegate(thread),
+            WatchUi.SLIDE_LEFT);
         thread.refresh();
     }
 }

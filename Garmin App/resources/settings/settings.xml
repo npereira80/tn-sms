@@ -5,13 +5,6 @@
   watch that has no keyboard.
 -->
 <settings>
-    <setting propertyKey="@Properties.syncUrl" title="@Strings.SettingSyncUrl">
-        <settingConfig type="alphaNumeric" maxLength="120"/>
-    </setting>
-    <setting propertyKey="@Properties.syncSecret" title="@Strings.SettingSyncSecret">
-        <settingConfig type="alphaNumeric" maxLength="120"/>
-    </setting>
-
     <setting propertyKey="@Properties.reply1" title="@Strings.SettingReply1">
         <settingConfig type="alphaNumeric" maxLength="120"/>
     </setting>
