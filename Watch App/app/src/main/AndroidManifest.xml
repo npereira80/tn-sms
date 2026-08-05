@@ -52,5 +52,20 @@
                     android:pathPrefix="/tnwatch/config" />
             </intent-filter>
         </service>
+
+        <!-- Serves the phone's "Watch App Client" screen: status + full re-sync. -->
+        <service
+            android:name=".config.WatchCommandService"
+            android:exported="true"
+            tools:ignore="ExportedService">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data android:scheme="wear" android:host="*" android:pathPrefix="/tnwatch/status" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data android:scheme="wear" android:host="*" android:pathPrefix="/tnwatch/resync" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>
