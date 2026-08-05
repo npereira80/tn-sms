@@ -572,6 +572,7 @@ class Repository(private val app: Context) {
         scope.launch {
             db.wipe()
             AvatarStore.clear(app)   // photos re-arrive from the phone
+            ImageStore.clear(app)    // message images re-download on demand
             _chats.value = emptyList()
             _status.value = Status.FirstSync
             syncAll(full = true)

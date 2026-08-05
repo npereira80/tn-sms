@@ -18,9 +18,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.ikuteam.tnwatch.data.Repository
 
 /**
@@ -41,12 +38,6 @@ fun ImageViewerOverlay(repo: Repository, url: String, onClose: () -> Unit) {
         offset = if (scale > 1f) offset + panChange else Offset.Zero
     }
 
-    val ctx = LocalContext.current
-    val request = ImageRequest.Builder(ctx)
-        .data(url)
-        .apply { repo.syncAuthHeader(url)?.let { (k, v) -> addHeader(k, v) } }
-        .build()
-
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -54,9 +45,10 @@ fun ImageViewerOverlay(repo: Repository, url: String, onClose: () -> Unit) {
             .transformable(transformState),
         contentAlignment = Alignment.Center,
     ) {
-        AsyncImage(
-            model = request,
-            contentDescription = null,
+        // Loaded via ImageStore so it works off Wi-Fi (fetched by the phone).
+        RemoteImage(
+            url = url,
+            repo = repo,
             contentScale = ContentScale.Fit,
             modifier = Modifier
                 .fillMaxSize()

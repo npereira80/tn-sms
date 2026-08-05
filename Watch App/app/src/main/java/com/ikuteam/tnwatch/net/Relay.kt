@@ -25,14 +25,14 @@ object Relay {
     const val REQUEST_PATH = "/tnwatch/http"
     const val REPLY_PREFIX = "/tnwatch/http-reply/"
 
-    private val pending = ConcurrentHashMap<String, CompletableDeferred<RawResponse>>()
+    private val pending = ConcurrentHashMap<String, CompletableDeferred<Pair<Int, ByteArray>>>()
 
     /** Called by [com.ikuteam.tnwatch.config.RelayReplyService] when a reply lands. */
     fun complete(id: String, code: Int, body: ByteArray) {
-        pending.remove(id)?.complete(RawResponse(code, String(body)))
+        pending.remove(id)?.complete(code to body)
     }
 
-    /** Performs [method] [url] on the phone. Returns null if the phone can't be reached. */
+    /** Text response variant of [executeRaw]. */
     suspend fun execute(
         method: String,
         url: String,
@@ -40,9 +40,24 @@ object Relay {
         body: ByteArray?,
         contentType: String?,
     ): RawResponse? {
+        val (code, bytes) = executeRaw(method, url, headers, body, contentType) ?: return null
+        return RawResponse(code, String(bytes))
+    }
+
+    /**
+     * Performs [method] [url] on the phone and returns the raw bytes, so binary
+     * payloads (images) survive intact. Null when the phone can't be reached.
+     */
+    suspend fun executeRaw(
+        method: String,
+        url: String,
+        headers: Map<String, String>,
+        body: ByteArray?,
+        contentType: String?,
+    ): Pair<Int, ByteArray>? {
         val context = Http.appContext ?: return null
         val id = UUID.randomUUID().toString()
-        val deferred = CompletableDeferred<RawResponse>()
+        val deferred = CompletableDeferred<Pair<Int, ByteArray>>()
         pending[id] = deferred
         try {
             val headerJson = JSONObject().apply {

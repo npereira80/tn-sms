@@ -25,7 +25,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -38,8 +37,6 @@ import androidx.wear.compose.material.ListHeader
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
 import androidx.wear.input.RemoteInputIntentHelper
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.ikuteam.tnwatch.data.Repository
 import com.ikuteam.tnwatch.data.Service
 import com.ikuteam.tnwatch.data.UiChat
@@ -213,16 +210,11 @@ private fun MessageBubble(
         horizontalAlignment = if (m.fromMe) Alignment.End else Alignment.Start,
     ) {
         m.imageUrl?.let { url ->
-            val ctx = LocalContext.current
-            val request = ImageRequest.Builder(ctx)
-                .data(url)
-                .apply { repo.syncAuthHeader(url)?.let { (k, v) -> addHeader(k, v) } }
-                .build()
-            AsyncImage(
-                model = request,
-                contentDescription = null,
-                // Crop, not fit: with a fixed square frame, "fit" letterboxes the
-                // photo and the rounded clip would round transparent bars.
+            // Crop, not fit: with a fixed square frame, "fit" letterboxes the
+            // photo and the rounded clip would round transparent bars.
+            RemoteImage(
+                url = url,
+                repo = repo,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .size(120.dp)

@@ -63,4 +63,27 @@ object Http {
             null // no route from the watch itself — caller falls back to the phone
         }
     }
+
+    /**
+     * As [exec] but returns raw bytes, for binary payloads (images) that must not
+     * be mangled by string decoding.
+     */
+    suspend fun execBytes(url: String, headers: Map<String, String> = emptyMap()): ByteArray? {
+        val builder = Request.Builder().url(url)
+        headers.forEach { (name, value) -> builder.header(name, value) }
+        val request = builder.get().build()
+
+        withContext(Dispatchers.IO) {
+            try {
+                client.newCall(request).execute().use { resp ->
+                    if (resp.isSuccessful) resp.body?.bytes() else null
+                }
+            } catch (e: Exception) {
+                null
+            }
+        }?.let { return it }
+
+        val (code, bytes) = Relay.executeRaw("GET", url, headers, null, null) ?: return null
+        return if (code in 200..299 && bytes.isNotEmpty()) bytes else null
+    }
 }
