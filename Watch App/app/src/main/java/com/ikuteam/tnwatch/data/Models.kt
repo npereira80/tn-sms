@@ -54,7 +54,16 @@ data class UiChat(
 ) {
     val canSms: Boolean
         get() = Service.SMS in services && smsAddress != null && Addr.isReplyable(smsAddress)
-    val canIMessage: Boolean get() = Service.IMESSAGE in services && bbChatGuid != null
+
+    /**
+     * iMessage is only offered to something you can actually address: a phone
+     * number, an email handle, or a group. An alphanumeric sender ID (OTP codes,
+     * banks, "UPSPkgInfo") is one-way whatever BlueBubbles reports for it, so it
+     * must never get a reply button.
+     */
+    val canIMessage: Boolean
+        get() = Service.IMESSAGE in services && bbChatGuid != null &&
+            (isGroup || Addr.isAddressable(smsAddress ?: key))
     val supportsBoth: Boolean get() = canSms && canIMessage
     /** No way to answer: e.g. an OTP / alphanumeric short-code sender. */
     val readOnly: Boolean get() = !canSms && !canIMessage
@@ -83,6 +92,19 @@ object Addr {
         val t = addr?.trim().orEmpty()
         if (t.isEmpty()) return false
         if (t.any { it.isLetter() }) return false     // alphanumeric sender ID
+        return t.any { it.isDigit() }
+    }
+
+    /**
+     * Can this identity be messaged at all, on any service? Phone numbers and
+     * email handles yes (email is a valid iMessage address); alphanumeric sender
+     * IDs no — they're one-way, so neither SMS nor iMessage can answer them.
+     */
+    fun isAddressable(addr: String?): Boolean {
+        val t = addr?.trim().orEmpty()
+        if (t.isEmpty()) return false
+        if (t.contains("@")) return true             // email → iMessage-addressable
+        if (t.any { it.isLetter() }) return false    // alphanumeric sender ID
         return t.any { it.isDigit() }
     }
 }
