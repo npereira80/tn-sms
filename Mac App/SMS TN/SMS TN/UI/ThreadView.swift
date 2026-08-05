@@ -66,7 +66,7 @@ struct ThreadView: View {
             }
 
             Divider()
-            if conversation?.readOnly ?? false {
+            if (conversation?.readOnly ?? false) || isOneWaySender {
                 notAvailableBanner
             } else {
                 composer
@@ -76,8 +76,24 @@ struct ThreadView: View {
         .navigationSubtitle(subtitle)
     }
 
+    /// One-way sender: OTP / bank short codes (alphanumeric) and email handles.
+    /// Outbound goes over the SMS relay, so anything that isn't a phone number
+    /// can't be answered — mirror the phone app and hide the composer.
+    private var isOneWaySender: Bool {
+        let addr = conversation?.primaryNumber
+            ?? conversation?.defaultOutgoingID
+            ?? conversation?.id
+            ?? ""
+        let trimmed = addr.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { return true }
+        if trimmed.rangeOfCharacter(from: .letters) != nil { return true }
+        return !trimmed.contains(where: \.isNumber)
+    }
+
     private var notAvailableBanner: some View {
-        Text("Messaging with \(displayTitle.isEmpty ? "this sender" : displayTitle) is not available right now")
+        Text(isOneWaySender
+             ? "You can't reply to this sender"
+             : "Messaging with \(displayTitle.isEmpty ? "this sender" : displayTitle) is not available right now")
             .font(.callout)
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.center)
@@ -205,6 +221,7 @@ struct ThreadView: View {
     private var canSend: Bool {
         !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !(conversation?.readOnly ?? true)
+            && !isOneWaySender
             && model.connectionState == .connected
     }
 

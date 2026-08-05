@@ -30,15 +30,22 @@ fun Modifier.pullToRefresh(
                 available: Offset,
                 source: NestedScrollSource,
             ): Offset {
+                // Finger drags only, and only clearly-vertical ones: the
+                // swipe-to-dismiss (back) gesture is horizontal and must not
+                // trigger a sync.
+                if (source != NestedScrollSource.Drag) return Offset.Zero
+                if (kotlin.math.abs(available.y) <= kotlin.math.abs(available.x)) return Offset.Zero
+
                 val atTop = state.centerItemIndex <= 0 && state.centerItemScrollOffset <= 0
                 if (atTop && available.y > 0f) {
                     overscroll += available.y
-                    if (!fired && overscroll > 120f) {
+                    if (!fired && overscroll > 200f) {
                         fired = true
                         onRefresh()
                     }
-                } else if (available.y < 0f) {
+                } else {
                     overscroll = 0f
+                    fired = false
                 }
                 return Offset.Zero
             }

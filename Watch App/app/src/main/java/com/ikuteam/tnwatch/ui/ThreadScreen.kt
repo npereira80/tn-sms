@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,6 +24,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
@@ -47,12 +49,10 @@ private val SMS_GREEN = Color(0xFF34C759)
 private val RECEIVED = Color(0xFF3A3A3C)
 
 @Composable
-fun ThreadScreen(
-    repo: Repository,
-    chat: UiChat,
-    onOpenImage: (String) -> Unit,
-) {
+fun ThreadScreen(repo: Repository, chat: UiChat) {
     var messages by remember { mutableStateOf<List<UiMessage>>(emptyList()) }
+    // Full-screen photo shown as an overlay above this screen (see ImageViewerOverlay).
+    var fullImage by remember { mutableStateOf<String?>(null) }
     // Which service the pending reply will use; set when a Reply button is tapped.
     var replyService by remember { mutableStateOf(chat.defaultService) }
     val listState = rememberScalingLazyListState()
@@ -92,35 +92,57 @@ fun ThreadScreen(
 
     RotaryScrollHandler(listState)
 
-    ScalingLazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .pullToRefresh(listState) { repo.refresh() },
-        state = listState,
-    ) {
-        item { ListHeader { Text(chat.title, maxLines = 1) } }
+    Box(Modifier.fillMaxSize()) {
+        ScalingLazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .pullToRefresh(listState) { repo.refresh() },
+            state = listState,
+        ) {
+            item { ListHeader { Text(chat.title, maxLines = 1) } }
 
-        items(messages, key = { it.id }) { m -> MessageBubble(m, repo, onOpenImage) }
+            items(messages, key = { it.id }) { m ->
+                MessageBubble(m, repo) { url -> fullImage = url }
+            }
 
-        // One button per available service, coloured to match its bubbles.
-        if (chat.canIMessage) {
-            item {
-                ReplyButton("Reply · iMessage", IMESSAGE_BLUE) { startReply(Service.IMESSAGE) }
+            // One button per available service, coloured to match its bubbles.
+            if (chat.canIMessage) {
+                item {
+                    ReplyButton("Reply · iMessage", IMESSAGE_BLUE) { startReply(Service.IMESSAGE) }
+                }
+            }
+            if (chat.canSms) {
+                item {
+                    ReplyButton("Reply · SMS", SMS_GREEN) { startReply(Service.SMS) }
+                }
+            }
+            // One-way sender (OTP / alphanumeric short code): no reply, same as
+            // the phone app's "You can't reply to this sender".
+            if (chat.readOnly) {
+                item {
+                    Text(
+                        text = "You can't reply to this sender",
+                        style = MaterialTheme.typography.caption2,
+                        color = Color(0xFF9A9AA0),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                    )
+                }
             }
         }
-        if (chat.canSms) {
-            item {
-                ReplyButton("Reply · SMS", SMS_GREEN) { startReply(Service.SMS) }
-            }
+
+        fullImage?.let { url ->
+            ImageViewerOverlay(repo, url) { fullImage = null }
         }
     }
 }
 
-/** header + messages + one button per available service */
+/** header + messages + reply buttons (or the read-only note) */
 private fun itemCount(messageCount: Int, chat: UiChat): Int {
     var n = 1 + messageCount
     if (chat.canIMessage) n++
     if (chat.canSms) n++
+    if (chat.readOnly) n++
     return n
 }
 

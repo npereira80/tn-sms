@@ -32,6 +32,7 @@ import androidx.wear.compose.material.ListHeader
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
 import com.ikuteam.tnwatch.data.Repository
+import com.ikuteam.tnwatch.data.Service
 import com.ikuteam.tnwatch.data.Status
 import com.ikuteam.tnwatch.data.UiChat
 
@@ -119,21 +120,19 @@ private fun ChatRow(chat: UiChat, onClick: () -> Unit) {
                 style = MaterialTheme.typography.caption2,
             )
         }
-        // Tiny service markers: blue = iMessage available, green = SMS available.
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            if (chat.canIMessage) ServiceDot(Color(0xFF0A84FF))
-            if (chat.canSms) ServiceDot(Color(0xFF34C759))
+        // Unread indicator: one dot, coloured by the service the newest message
+        // arrived on (blue = iMessage, green = SMS). Nothing when read.
+        if (chat.unread) {
+            Box(
+                Modifier
+                    .padding(start = 4.dp)
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (chat.lastService == Service.IMESSAGE) Color(0xFF0A84FF)
+                        else Color(0xFF34C759),
+                    ),
+            )
         }
     }
-}
-
-@Composable
-private fun ServiceDot(color: Color) {
-    Box(
-        Modifier
-            .padding(1.dp)
-            .size(5.dp)
-            .clip(CircleShape)
-            .background(color),
-    )
 }

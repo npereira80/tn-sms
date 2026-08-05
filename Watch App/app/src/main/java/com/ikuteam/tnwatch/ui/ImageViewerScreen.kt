@@ -1,5 +1,6 @@
 package com.ikuteam.tnwatch.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
@@ -23,13 +24,16 @@ import coil.request.ImageRequest
 import com.ikuteam.tnwatch.data.Repository
 
 /**
- * Full-screen image with pinch-to-zoom and pan. Closing is the platform gesture:
- * the swipe-dismissable nav host pops this screen on a swipe from the left edge.
+ * Full-screen image with pinch-to-zoom and pan, drawn as an overlay on top of the
+ * thread (NOT a navigation destination — routing it through the nav host left a
+ * black screen behind on dismiss). The system back gesture closes it.
  */
 @Composable
-fun ImageViewerScreen(repo: Repository, url: String) {
+fun ImageViewerOverlay(repo: Repository, url: String, onClose: () -> Unit) {
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
+
+    BackHandler(enabled = true) { onClose() }
 
     val transformState = rememberTransformableState { zoomChange, panChange, _ ->
         scale = (scale * zoomChange).coerceIn(1f, 5f)

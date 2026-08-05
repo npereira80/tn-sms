@@ -22,7 +22,6 @@ fun WearApp(repo: Repository) {
     MaterialTheme {
         val nav = rememberSwipeDismissableNavController()
         var selected by remember { mutableStateOf<UiChat?>(null) }
-        var viewerUrl by remember { mutableStateOf<String?>(null) }
 
         val net by repo.net.collectAsStateWithLifecycle()
         val syncing by repo.syncing.collectAsStateWithLifecycle()
@@ -45,18 +44,7 @@ fun WearApp(repo: Repository) {
                 }
                 composable("thread") {
                     val chat = selected
-                    if (chat == null) {
-                        nav.popBackStack()
-                    } else {
-                        ThreadScreen(repo, chat) { url ->
-                            viewerUrl = url
-                            nav.navigate("image")
-                        }
-                    }
-                }
-                composable("image") {
-                    val url = viewerUrl
-                    if (url == null) nav.popBackStack() else ImageViewerScreen(repo, url)
+                    if (chat == null) nav.popBackStack() else ThreadScreen(repo, chat)
                 }
             }
         }
