@@ -59,6 +59,26 @@ class SyncClient(
         }.getOrNull()
     }
 
+    /**
+     * Ids + hashes this conversation currently holds server-side, so the caller
+     * can drop local copies of messages deleted elsewhere.
+     */
+    suspend fun conversationKeys(conversationId: String): ConversationKeys? {
+        if (conversationId.isBlank()) return null
+        val t = ensureToken() ?: return null
+        val encoded = java.net.URLEncoder.encode(conversationId, "UTF-8")
+        val resp = Http.exec(
+            Request.Builder()
+                .url(url("/conversation/$encoded/messages"))
+                .header("Authorization", "Bearer $t")
+                .get().build(),
+        )
+        if (resp == null || !resp.isSuccessful) return null
+        return runCatching {
+            Http.json.decodeFromString(ConversationKeys.serializer(), resp.body)
+        }.getOrNull()
+    }
+
     /** Relay an outbound SMS to the primary phone. */
     suspend fun send(to: String, body: String): Boolean {
         val t = ensureToken() ?: return false

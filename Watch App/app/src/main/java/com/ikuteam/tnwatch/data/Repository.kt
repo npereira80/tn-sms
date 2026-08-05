@@ -244,6 +244,13 @@ class Repository(private val app: Context) {
                 d.conversations.forEach { conv ->
                     if (conv.id.isNotBlank()) markUnread(conv.id, conv.unread)
                 }
+                // /delta returns the FULL conversation list, so anything of ours
+                // that's missing was deleted elsewhere. Without this a thread
+                // deleted on the phone or Mac kept sitting in the watch's list:
+                // the tombstones removed its messages but nothing removed the row.
+                if (d.conversations.isNotEmpty()) {
+                    pruneMissingSmsChats(d.conversations.mapTo(HashSet()) { it.id })
+                }
                 if (d.cursor <= cursor) break
                 db.syncCursor = d.cursor
                 s.token?.let { ConfigStore.setSyncToken(app, it) }
@@ -352,6 +359,56 @@ class Repository(private val app: Context) {
         scope.launch {
             val after = maxOf(db.bbCursor(guid), db.newestTs(chat.key, Service.IMESSAGE))
             fetchThread(guid, chat.key, after)
+        }
+    }
+
+    /**
+     * Drops SMS threads the server no longer has (deleted on the phone or Mac).
+     * A chat that also exists on iMessage keeps its row and just loses its SMS
+     * side; an SMS-only chat is removed outright.
+     */
+    private fun pruneMissingSmsChats(serverConversationIds: Set<String>) {
+        var changed = false
+        for (chat in db.chats()) {
+            val address = chat.smsAddress ?: continue        // no SMS side to lose
+            if (chat.key in serverConversationIds) continue  // still there
+            if (chat.bbChatGuid != null) {
+                db.upsertChats(listOf(chat.copy(smsAddress = null, services = setOf(Service.IMESSAGE))))
+            } else {
+                db.deleteChat(chat.key)
+            }
+            changed = true
+            Log.w(TAG, "pruned SMS thread deleted elsewhere: ${address.takeLast(4)}")
+        }
+        if (changed) _revision.value = _revision.value + 1
+    }
+
+    /** Chats already reconciled this run, so opening one repeatedly is free. */
+    private val reconciled = HashSet<String>()
+
+    /**
+     * Reconciles one thread against the server's current contents, so a single
+     * message deleted elsewhere disappears here even if we missed its tombstone.
+     *
+     * Cheap and bounded: it fetches only ids + hashes (no message bodies) for the
+     * one chat being opened, and only the first time it's opened per app run —
+     * the chat list itself is pruned for free from /delta's conversation list.
+     */
+    fun reconcileThread(chat: UiChat) {
+        if (Service.SMS !in chat.services) return
+        if (!reconciled.add(chat.key)) return
+        val s = sync ?: return
+        scope.launch {
+            val keys = s.conversationKeys(chat.key) ?: return@launch
+            val removed = db.pruneMessagesNotIn(
+                chatKey = chat.key,
+                service = Service.SMS,
+                keepIds = keys.ids.toSet(),
+                keepHashes = keys.hashes.toSet(),
+            )
+            if (removed > 0) {
+                publishChats()
+            }
         }
     }
 
@@ -584,6 +641,7 @@ class Repository(private val app: Context) {
             db.wipe()
             AvatarStore.clear(app)   // photos re-arrive from the phone
             ImageStore.clear(app)    // message images re-download on demand
+            reconciled.clear()
             _chats.value = emptyList()
             _status.value = Status.FirstSync
             syncAll(full = true)

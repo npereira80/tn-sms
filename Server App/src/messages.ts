@@ -164,6 +164,22 @@ export function delta(since: number) {
   return { messages, conversations, deletions, cursor };
 }
 
+/**
+ * Ids + content hashes a conversation currently holds. Clients use this to prune
+ * local copies of messages deleted elsewhere: tombstones are incremental, so a
+ * client that missed one, or that stored a message under a different id, needs a
+ * positive list to converge against.
+ */
+export function conversationMessageKeys(conversationId: string) {
+  const rows = db
+    .prepare(`SELECT id, content_hash FROM message WHERE conversation_id = ?`)
+    .all(conversationId) as { id: string; content_hash: string }[];
+  return {
+    ids: rows.map((r) => r.id),
+    hashes: rows.map((r) => r.content_hash).filter(Boolean),
+  };
+}
+
 export function setStatus(messageId: string, status: string) {
   db.prepare(`UPDATE message SET status = ?, updated_at = ? WHERE id = ?`)
     .run(status, now(), messageId);

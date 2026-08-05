@@ -160,6 +160,43 @@ class Db(context: Context) : SQLiteOpenHelper(context, "tnwatch.db", null, 3) {
     fun deleteMessageByHash(hash: String): Int =
         writableDatabase.delete("message", "content_hash = ?", arrayOf(hash))
 
+    /**
+     * Drops this chat's messages for [service] that the server no longer lists.
+     * The positive counterpart to tombstones: converges even if one was missed.
+     * Returns how many rows were removed.
+     */
+    fun pruneMessagesNotIn(
+        chatKey: String,
+        service: Service,
+        keepIds: Set<String>,
+        keepHashes: Set<String>,
+    ): Int {
+        val doomed = ArrayList<String>()
+        readableDatabase.query(
+            "message",
+            arrayOf("id", "content_hash"),
+            "chat_key = ? AND service = ?", arrayOf(chatKey, service.name),
+            null, null, null,
+        ).use { c ->
+            while (c.moveToNext()) {
+                val id = c.getString(0)
+                val hash = if (c.isNull(1)) null else c.getString(1)
+                val known = id in keepIds || (hash != null && hash in keepHashes)
+                if (!known) doomed += id
+            }
+        }
+        if (doomed.isEmpty()) return 0
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            for (id in doomed) db.delete("message", "id = ?", arrayOf(id))
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        return doomed.size
+    }
+
     /** Removes a whole thread: its messages, the chat row, and any queued sends. */
     fun deleteChat(key: String) {
         val db = writableDatabase

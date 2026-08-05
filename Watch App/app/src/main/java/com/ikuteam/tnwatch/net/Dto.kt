@@ -84,6 +84,13 @@ data class SyncDeletion(
     val ts: Long = 0,
 )
 
+/** What a conversation currently holds server-side, for pruning local copies. */
+@Serializable
+data class ConversationKeys(
+    val ids: List<String> = emptyList(),
+    val hashes: List<String> = emptyList(),
+)
+
 @Serializable
 data class DeltaResponse(
     val messages: List<SyncMessage> = emptyList(),

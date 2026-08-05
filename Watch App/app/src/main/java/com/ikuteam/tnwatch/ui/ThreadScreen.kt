@@ -65,9 +65,11 @@ fun ThreadScreen(repo: Repository, chat: UiChat) {
     }
 
     // Pull this thread's iMessage history now, in case the background backfill
-    // hasn't reached this chat yet (first run walks hundreds of chats).
+    // hasn't reached this chat yet (first run walks hundreds of chats), and drop
+    // any SMS deleted elsewhere that we somehow still hold.
     LaunchedEffect(chat.key) {
         repo.ensureThreadLoaded(chat)
+        repo.reconcileThread(chat)
     }
 
     // Open on the LATEST message and follow new arrivals.

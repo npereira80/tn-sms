@@ -8,7 +8,9 @@ import { hub } from "./hub.js";
 import {
   registerDevice, deviceByToken, touch, reportSim, currentPrimary, type DeviceRow,
 } from "./devices.js";
-import { ingest, delta, applyReadUpdates, reconcile, deleteItems } from "./messages.js";
+import {
+  ingest, delta, applyReadUpdates, reconcile, deleteItems, conversationMessageKeys,
+} from "./messages.js";
 import { enqueueSend, updateSendStatus, redeliverQueued } from "./send.js";
 import { storeMedia, mediaExists, mediaPath, mimeFor, isValidHash } from "./media.js";
 import fs from "node:fs";
@@ -80,6 +82,15 @@ app.post("/ingest", auth, (req: AuthedRequest, res) => {
 app.get("/delta", auth, (req, res) => {
   const since = Number(req.query.since ?? 0);
   res.json(delta(Number.isFinite(since) ? since : 0));
+});
+
+// Everything this conversation currently holds, so a client can drop local
+// copies of messages that were deleted elsewhere. Deletion tombstones are
+// incremental and a client that missed one (or stored the message under a
+// different id) would otherwise keep showing it forever; this is the positive
+// check that always converges.
+app.get("/conversation/:id/messages", auth, (req, res) => {
+  res.json(conversationMessageKeys(String(req.params.id)));
 });
 
 const readBody = z.object({
