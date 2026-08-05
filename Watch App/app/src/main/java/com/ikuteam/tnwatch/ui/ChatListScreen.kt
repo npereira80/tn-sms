@@ -24,8 +24,10 @@ fun ChatListScreen(repo: Repository, onOpen: (UiChat) -> Unit) {
     val status by repo.status.collectAsStateWithLifecycle()
     val listState = rememberScalingLazyListState()
 
+    RotaryScrollHandler(listState)
+
     ScalingLazyColumn(
-        modifier = Modifier.fillMaxSize().rotaryScroll(listState),
+        modifier = Modifier.fillMaxSize(),
         state = listState,
     ) {
         item { ListHeader { Text("Messages") } }

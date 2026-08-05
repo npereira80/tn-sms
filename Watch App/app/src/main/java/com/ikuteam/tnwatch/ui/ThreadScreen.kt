@@ -94,8 +94,10 @@ fun ThreadScreen(repo: Repository, chat: UiChat) {
         replyLauncher.launch(intent)
     }
 
+    RotaryScrollHandler(listState)
+
     ScalingLazyColumn(
-        modifier = Modifier.fillMaxSize().rotaryScroll(listState),
+        modifier = Modifier.fillMaxSize(),
         state = listState,
     ) {
         item { ListHeader { Text(chat.title, maxLines = 1) } }
@@ -144,7 +146,7 @@ private fun MessageBubble(m: UiMessage, repo: Repository) {
             .fillMaxWidth()
             .padding(vertical = 2.dp)
             // Inset the opposite edge so sent/received are easy to tell apart.
-            .padding(end = if (m.fromMe) 0.dp else 10.dp, start = if (m.fromMe) 10.dp else 0.dp),
+            .padding(end = if (m.fromMe) 0.dp else 15.dp, start = if (m.fromMe) 15.dp else 0.dp),
         horizontalAlignment = if (m.fromMe) Alignment.End else Alignment.Start,
     ) {
         m.imageUrl?.let { url ->

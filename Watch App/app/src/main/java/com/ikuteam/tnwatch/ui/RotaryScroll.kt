@@ -1,39 +1,35 @@
 package com.ikuteam.tnwatch.ui
 
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.ExperimentalComposeUiApi
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.composed
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.wear.compose.foundation.lazy.ScalingLazyListState
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableSharedFlow
 
 /**
- * Makes a [ScalingLazyColumn] respond to the rotating side button / bezel.
- * Rotary events only reach a focused composable, so this also takes focus.
+ * Rotary (crown / bezel) scrolling.
+ *
+ * Compose's `onRotaryScrollEvent` only fires for a FOCUSED composable, and
+ * reliably taking focus inside a swipe-dismissable nav host proved flaky, so the
+ * Activity forwards raw rotary MotionEvents into this bus (see
+ * MainActivity.onGenericMotionEvent) and whichever list is on screen consumes
+ * them. Deterministic, no focus required.
  */
-@OptIn(ExperimentalComposeUiApi::class)
-fun Modifier.rotaryScroll(state: ScalingLazyListState): Modifier = composed {
-    val focusRequester = remember { FocusRequester() }
-    val scope = rememberCoroutineScope()
+object RotaryBus {
+    /** Scroll deltas in pixels; replay 0 so stale events aren't re-applied. */
+    val events = MutableSharedFlow<Float>(replay = 0, extraBufferCapacity = 64)
 
-    LaunchedEffect(Unit) {
-        // Safe to ignore: focus can be unavailable while the screen is leaving.
-        runCatching { focusRequester.requestFocus() }
+    fun emit(deltaPx: Float) {
+        events.tryEmit(deltaPx)
     }
+}
 
-    this
-        .onRotaryScrollEvent { event ->
-            scope.launch { state.scrollBy(event.verticalScrollPixels) }
-            true
+/** Scrolls [state] in response to rotary input while this screen is composed. */
+@Composable
+fun RotaryScrollHandler(state: ScalingLazyListState) {
+    LaunchedEffect(state) {
+        RotaryBus.events.collect { delta ->
+            runCatching { state.scrollBy(delta) }
         }
-        .focusRequester(focusRequester)
-        .focusable()
+    }
 }
