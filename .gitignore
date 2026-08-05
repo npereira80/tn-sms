@@ -8,9 +8,11 @@
 !*.env.example
 
 # ---- Node / SMS Sync Server (Server App) ----
+# Scoped to the server: a bare `data/` also swallowed the watch app's
+# `.../tnwatch/data/` source package, so those files were silently untracked.
 node_modules/
 dist/
-data/
+/Server App/data/
 *.log
 
 # ---- Go / GmBridge ----
