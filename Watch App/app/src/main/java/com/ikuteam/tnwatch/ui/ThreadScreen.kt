@@ -67,6 +67,12 @@ fun ThreadScreen(repo: Repository, chat: UiChat) {
         messages = repo.thread(chat)
     }
 
+    // Pull this thread's iMessage history now, in case the background backfill
+    // hasn't reached this chat yet (first run walks hundreds of chats).
+    LaunchedEffect(chat.key) {
+        repo.ensureThreadLoaded(chat)
+    }
+
     // Open on the LATEST message and follow new arrivals.
     LaunchedEffect(chat.key, messages.size) {
         if (messages.isNotEmpty()) {

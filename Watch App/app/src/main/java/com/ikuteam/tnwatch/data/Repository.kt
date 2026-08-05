@@ -148,16 +148,26 @@ class Repository(private val app: Context) {
 
     private suspend fun syncAll(full: Boolean) {
         if (syncMutex.isLocked) return
+        val firstRun = !db.firstSyncDone
         syncMutex.withLock {
             _syncing.value = true
             try {
-                // Hard ceiling: a hung request must never leave "Syncing…" up
-                // indefinitely (the per-call OkHttp timeouts still apply).
-                withTimeoutOrNull(120_000) {
+                // The visible part is deliberately just two requests: the SMS
+                // delta and the iMessage chat list (which includes each chat's
+                // last message). Per-chat iMessage history is one request per chat,
+                // so it's backfilled in the background below instead of holding
+                // the list hostage — that walk is what used to take minutes.
+                val chatList = withTimeoutOrNull(60_000) {
                     syncSms()
-                    syncIMessage(allChats = full || !db.firstSyncDone)
-                }
+                    syncIMessageChats()
+                } ?: emptyList()
                 publishChats()
+
+                // Background: fill in message history. No spinner — the list is
+                // already usable, and opening a chat fetches its thread on demand.
+                if (chatList.isNotEmpty()) {
+                    scope.launch { syncIMessageHistory(chatList, allChats = full || firstRun) }
+                }
                 if (!db.firstSyncDone) db.firstSyncDone = true
                 _status.value = Status.Ready
                 // "Offline" now means what actually happened: if either backend
@@ -240,51 +250,94 @@ class Repository(private val app: Context) {
      * round-trip per chat (hundreds), which is what made "Syncing…" hang around.
      * [allChats] forces the full walk for the first/explicit full sync.
      */
-    private suspend fun syncIMessage(allChats: Boolean) {
+    /**
+     * Stores the iMessage chat list — a single request that gives us every chat
+     * plus its last message, which is all the chat list needs to render. Message
+     * history is filled in separately ([syncIMessageHistory]).
+     */
+    private suspend fun syncIMessageChats(): List<BBChat> {
+        val b = bb ?: return emptyList()
+        val list = try {
+            b.chats()
+        } catch (e: Exception) {
+            Log.w(TAG, "iMessage chat list failed: ${e.javaClass.simpleName}: ${e.message}")
+            null
+        }
+        _net.value = _net.value.copy(bbOk = list != null || !_net.value.bbConfigured)
+        if (list == null) return emptyList()
+        bbChats = list
+        for (chat in list) {
+            val isGroup = (chat.style == 43) || chat.participants.size > 1
+            val participant = chat.chatIdentifier ?: chat.participants.firstOrNull()?.address ?: continue
+            val key = if (isGroup) chat.guid else Addr.normalize(participant)
+            upsertBbChat(chat, key, participant, isGroup)
+        }
+        return list
+    }
+
+    /**
+     * Fetches each chat's new iMessages. One HTTP round-trip per chat, so it's
+     * only worth doing for chats that actually have something newer than our
+     * cursor — [allChats] forces the lot (first run / full re-sync) and is run in
+     * the background so it never blocks the chat list.
+     */
+    private suspend fun syncIMessageHistory(list: List<BBChat>, allChats: Boolean) {
         val b = bb ?: return
-        var ok = false
         try {
-            val list = b.chats()
-            if (list != null) {
-                ok = true
-                bbChats = list
-                for (chat in list) {
-                    val isGroup = (chat.style == 43) || chat.participants.size > 1
-                    val participant = chat.chatIdentifier ?: chat.participants.firstOrNull()?.address ?: continue
-                    val key = if (isGroup) chat.guid else Addr.normalize(participant)
-                    upsertBbChat(chat, key, participant, isGroup)
+            for (chat in list) {
+                val isGroup = (chat.style == 43) || chat.participants.size > 1
+                val participant = chat.chatIdentifier ?: chat.participants.firstOrNull()?.address ?: continue
+                val key = if (isGroup) chat.guid else Addr.normalize(participant)
 
-                    val after = maxOf(db.bbCursor(chat.guid), db.newestTs(key, Service.IMESSAGE))
-                    // Nothing newer than our cursor: skip the request entirely.
-                    val lastMessageTs = chat.lastMessage?.dateCreated ?: 0L
-                    if (!allChats && after > 0 && lastMessageTs <= after) continue
+                val after = maxOf(db.bbCursor(chat.guid), db.newestTs(key, Service.IMESSAGE))
+                // Nothing newer than our cursor: skip the request entirely.
+                val lastMessageTs = chat.lastMessage?.dateCreated ?: 0L
+                if (!allChats && after > 0 && lastMessageTs <= after) continue
 
-                    val msgs = try {
-                        b.messages(chat.guid, afterMs = after)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "BB messages(${chat.guid}) failed: ${e.message}")
-                        null
-                    } ?: continue
-                    if (msgs.isEmpty()) continue
-                    val ui = msgs.map { m ->
-                        UiMessage(
-                            id = m.guid,
-                            text = m.text.orEmpty(),
-                            fromMe = m.isFromMe,
-                            timestamp = m.dateCreated ?: 0L,
-                            service = Service.IMESSAGE,
-                            imageUrl = m.attachments.firstOrNull { (it.mimeType ?: "").startsWith("image/") }
-                                ?.let { b.attachmentUrl(it.guid) },
-                        )
-                    }.filter { it.text.isNotBlank() || it.imageUrl != null }
-                    db.upsertMessages(ui, key)
-                    msgs.mapNotNull { it.dateCreated }.maxOrNull()?.let { db.setBbCursor(chat.guid, it) }
-                }
+                if (fetchThread(chat.guid, key, after) > 0) publishChats()
             }
         } catch (e: Exception) {
-            Log.w(TAG, "iMessage sync failed: ${e.javaClass.simpleName}: ${e.message}")
+            Log.w(TAG, "iMessage history failed: ${e.javaClass.simpleName}: ${e.message}")
         }
-        _net.value = _net.value.copy(bbOk = ok || !_net.value.bbConfigured)
+    }
+
+    /** Stores one chat's iMessages newer than [after]. Returns how many landed. */
+    private suspend fun fetchThread(chatGuid: String, key: String, after: Long): Int {
+        val b = bb ?: return 0
+        val msgs = try {
+            b.messages(chatGuid, afterMs = after)
+        } catch (e: Exception) {
+            Log.w(TAG, "BB messages($chatGuid) failed: ${e.message}")
+            null
+        } ?: return 0
+        if (msgs.isEmpty()) return 0
+        val ui = msgs.map { m ->
+            UiMessage(
+                id = m.guid,
+                text = m.text.orEmpty(),
+                fromMe = m.isFromMe,
+                timestamp = m.dateCreated ?: 0L,
+                service = Service.IMESSAGE,
+                imageUrl = m.attachments.firstOrNull { (it.mimeType ?: "").startsWith("image/") }
+                    ?.let { b.attachmentUrl(it.guid) },
+            )
+        }.filter { it.text.isNotBlank() || it.imageUrl != null }
+        db.upsertMessages(ui, key)
+        msgs.mapNotNull { it.dateCreated }.maxOrNull()?.let { db.setBbCursor(chatGuid, it) }
+        _revision.value = _revision.value + 1
+        return ui.size
+    }
+
+    /**
+     * Loads a thread's iMessage history on demand, so opening a chat works before
+     * the background backfill has reached it.
+     */
+    fun ensureThreadLoaded(chat: UiChat) {
+        val guid = chat.bbChatGuid ?: return
+        scope.launch {
+            val after = maxOf(db.bbCursor(guid), db.newestTs(chat.key, Service.IMESSAGE))
+            fetchThread(guid, chat.key, after)
+        }
     }
 
     // ---- chat rows --------------------------------------------------------
