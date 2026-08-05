@@ -1,21 +1,31 @@
 // Automatic fill. Runs on every page (otp-fill.js is loaded just before this).
-// When a strong OTP field is present and empty, it asks the app (via the
-// background worker) for the current code and fills it — once per code. If the
-// field appears before the SMS does, it polls briefly so a code that arrives
-// after the page loads still lands. The popup's button remains a manual force.
+// When a strong OTP field is present, it asks the app for the current code and
+// fills it. After a successful auto-fill it tells the app the code was consumed,
+// so the same (now stale) code is never re-offered to auto-fill — the popup's
+// manual button can still force it until a newer code arrives.
 
 (function () {
   const api = (typeof browser !== "undefined") ? browser : chrome;
-  const filled = new Set();           // codes already auto-filled on this page
+  const filled = new Set();   // codes already auto-filled on this page
+  let lastFilled = null;      // most recent auto-filled code (replaceable)
   let pollTimer = null;
   let pollUntil = 0;
 
   async function getCode() {
     try {
-      const r = await api.runtime.sendMessage({ type: "otp-getcode" });
+      // mode:"auto" — the app withholds a code that was already auto-filled.
+      const r = await api.runtime.sendMessage({ type: "otp-getcode", mode: "auto" });
       return r && r.code ? String(r.code) : "";
     } catch (e) {
       return "";
+    }
+  }
+
+  async function markConsumed(code) {
+    try {
+      await api.runtime.sendMessage({ type: "otp-consumed", code });
+    } catch (e) {
+      // Non-fatal: worst case the code stays offered until it expires.
     }
   }
 
@@ -23,8 +33,15 @@
     if (!window.__otpFill || !window.__otpFill.qualifies(true)) return false;
     const code = await getCode();
     if (!code || filled.has(code)) return false;
-    const res = window.__otpFill.run(code, { strict: true });
-    if (res === "filled") { filled.add(code); return true; }
+    // `replaceable` lets a NEW code overwrite the previous auto-filled value,
+    // which would otherwise be protected by the never-overwrite rule.
+    const res = window.__otpFill.run(code, { strict: true, replaceable: lastFilled });
+    if (res === "filled") {
+      filled.add(code);
+      lastFilled = code;
+      markConsumed(code);
+      return true;
+    }
     return false;
   }
 
@@ -33,8 +50,8 @@
     if (pollTimer) return;
     pollTimer = setInterval(async () => {
       if (Date.now() > pollUntil) { clearInterval(pollTimer); pollTimer = null; return; }
-      const done = await attempt();
-      if (done) { clearInterval(pollTimer); pollTimer = null; }
+      // Keep polling after a fill: a second code may still arrive for this form.
+      await attempt();
     }, 1500);
   }
 

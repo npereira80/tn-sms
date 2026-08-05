@@ -80,6 +80,9 @@ final class OTPCenter {
     // lifetime, and we clear the slot when nothing is live.
     static let appGroupID = "group.macDroid.SMS-TN"
     private static let sharedOTPKey = "latestOTP"
+    // Set by the extension once a code has been auto-filled, so it isn't offered
+    // to auto-fill again. Cleared here whenever a newer code arrives.
+    private static let sharedConsumedKey = "consumedOTP"
     private let sharedDefaults = UserDefaults(suiteName: OTPCenter.appGroupID)
 
     func registerNotificationCategory() {
@@ -112,7 +115,13 @@ final class OTPCenter {
         let live = active.filter { !$0.isExpired }.max(by: { $0.detectedAt < $1.detectedAt })
         guard let latest = live else {
             sharedDefaults.removeObject(forKey: Self.sharedOTPKey)
+            sharedDefaults.removeObject(forKey: Self.sharedConsumedKey)
             return
+        }
+        // A different code than the one already auto-filled: drop the consumed
+        // marker so the new code gets auto-filled (and can replace the stale one).
+        if sharedDefaults.string(forKey: Self.sharedConsumedKey) != latest.code {
+            sharedDefaults.removeObject(forKey: Self.sharedConsumedKey)
         }
         let payload: [String: Any] = [
             "code": latest.code,

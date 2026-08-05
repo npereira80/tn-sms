@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "SMS TN OTP Fill",
+  "name": "Bubbles OTP Fill",
   "version": "1.0",
-  "description": "One-click fill of SMS one-time codes detected by SMS TN.",
+  "description": "One-click fill of SMS one-time codes detected by Bubbles.",
   "icons": {
     "48": "icon-48.png",
     "128": "icon-128.png",

@@ -132,16 +132,27 @@
   }
 
   // Fill. Returns "filled" | "nofield".
+  //
+  // opts.strict      — automatic mode: strong match only, never clobber input.
+  // opts.replaceable — a previously auto-filled code that MAY be overwritten,
+  //                    so a newer OTP replaces a stale one in the same field.
   function run(code, opts) {
     opts = opts || {};
     const strict = !!opts.strict;
     const digits = String(code).replace(/\D/g, "");
     if (!digits) return "nofield";
+    const stale = opts.replaceable ? String(opts.replaceable).replace(/\D/g, "") : "";
+    // A field is "free" if empty, or if it still holds the code we filled before.
+    const isFree = (v) => {
+      const cur = (v || "").trim();
+      if (cur === "") return true;
+      return !!stale && cur.replace(/\D/g, "") === stale;
+    };
 
     // 1) Segmented OTP boxes.
     const seg = segmentedGroup(digits);
     if (seg) {
-      if (!strict || !seg.slice(0, digits.length).some((el) => (el.value || "") !== "")) {
+      if (!strict || seg.slice(0, digits.length).every((el) => isFree(el.value))) {
         for (let i = 0; i < digits.length; i++) setNativeValue(seg[i], digits[i]);
         try { seg[Math.min(digits.length, seg.length) - 1].focus(); } catch (e) {}
         return "filled";
@@ -152,7 +163,7 @@
     const b = findBest(digits);
     if (b.el) {
       const ok = strict
-        ? (b.score >= 70 && b.kw && (b.el.value || "").trim() === "")
+        ? (b.score >= 70 && b.kw && isFree(b.el.value))
         : (b.score >= 40);
       if (ok) { setNativeValue(b.el, digits); try { b.el.focus(); } catch (e) {} return "filled"; }
     }
