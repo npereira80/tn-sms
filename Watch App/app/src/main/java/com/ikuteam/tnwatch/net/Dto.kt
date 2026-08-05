@@ -1,7 +1,41 @@
 package com.ikuteam.tnwatch.net
 
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.intOrNull
+
+/**
+ * Booleans on the wire arrive in whatever shape the backend's storage produced:
+ * SQLite (the sync server) emits 1/0, BlueBubbles emits true/false, and either
+ * can send them as strings. A strict Boolean field made one such value fail the
+ * WHOLE payload, so parse all of these forms.
+ */
+object LooseBoolean : KSerializer<Boolean> {
+    override val descriptor: SerialDescriptor =
+        PrimitiveSerialDescriptor("LooseBoolean", PrimitiveKind.BOOLEAN)
+
+    override fun deserialize(decoder: Decoder): Boolean {
+        val input = decoder as? JsonDecoder ?: return decoder.decodeBoolean()
+        val prim = input.decodeJsonElement() as? JsonPrimitive ?: return false
+        prim.booleanOrNull?.let { return it }
+        prim.intOrNull?.let { return it != 0 }
+        return when (prim.content.lowercase()) {
+            "true", "1", "yes" -> true
+            else -> false
+        }
+    }
+
+    override fun serialize(encoder: Encoder, value: Boolean) = encoder.encodeBoolean(value)
+}
 
 // ---- SMS sync server ------------------------------------------------------
 
@@ -34,7 +68,10 @@ data class SyncMessage(
 }
 
 @Serializable
-data class SyncConversation(val id: String = "", val unread: Boolean = false)
+data class SyncConversation(
+    val id: String = "",
+    @Serializable(with = LooseBoolean::class) val unread: Boolean = false,
+)
 
 @Serializable
 data class SyncDeletion(
@@ -69,7 +106,7 @@ data class BBMessage(
     val guid: String = "",
     val text: String? = null,
     val dateCreated: Long? = null,
-    val isFromMe: Boolean? = null,
+    @Serializable(with = LooseBoolean::class) val isFromMe: Boolean = false,
     val handle: BBHandle? = null,
     val attachments: List<BBAttachment> = emptyList(),
 )
