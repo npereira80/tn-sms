@@ -1,14 +1,25 @@
 package com.ikuteam.tnwatch.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -16,10 +27,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
 import androidx.wear.compose.foundation.lazy.items
 import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
-import androidx.wear.compose.material.Chip
-import androidx.wear.compose.material.ChipDefaults
 import androidx.wear.compose.material.CircularProgressIndicator
 import androidx.wear.compose.material.ListHeader
+import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
 import com.ikuteam.tnwatch.data.Repository
 import com.ikuteam.tnwatch.data.Status
@@ -78,18 +88,52 @@ fun ChatListScreen(repo: Repository, onOpen: (UiChat) -> Unit) {
     }
 }
 
+/**
+ * Contact-photo row: avatar, bold name, muted snippet. No chip background, so the
+ * list reads like the phone's conversation list rather than a stack of buttons.
+ */
 @Composable
 private fun ChatRow(chat: UiChat, onClick: () -> Unit) {
-    Chip(
-        modifier = Modifier.fillMaxWidth(),
-        onClick = onClick,
-        colors = ChipDefaults.secondaryChipColors(),
-        label = {
-            Text(chat.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        },
-        secondaryLabel = {
-            val prefix = if (chat.supportsBoth) "•• " else "" // •• = reachable on both
-            Text(prefix + chat.snippet, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        },
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Avatar(address = chat.smsAddress ?: chat.key.takeIf { !chat.isGroup }, title = chat.title)
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = chat.title,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontWeight = if (chat.unread) FontWeight.Bold else FontWeight.SemiBold,
+                style = MaterialTheme.typography.button,
+            )
+            Text(
+                text = chat.snippet,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = Color(0xFF9A9AA0),
+                style = MaterialTheme.typography.caption2,
+            )
+        }
+        // Tiny service markers: blue = iMessage available, green = SMS available.
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            if (chat.canIMessage) ServiceDot(Color(0xFF0A84FF))
+            if (chat.canSms) ServiceDot(Color(0xFF34C759))
+        }
+    }
+}
+
+@Composable
+private fun ServiceDot(color: Color) {
+    Box(
+        Modifier
+            .padding(1.dp)
+            .size(5.dp)
+            .clip(CircleShape)
+            .background(color),
     )
 }
