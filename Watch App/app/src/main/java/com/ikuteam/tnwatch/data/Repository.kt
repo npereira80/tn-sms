@@ -61,6 +61,7 @@ class Repository(private val app: Context) {
     private var bb: BlueBubblesClient? = null
     private var stream: StreamClient? = null
     private var bbChats: List<BBChat> = emptyList()
+    private var lastContactRefresh = 0L
 
     init {
         // Show cached content immediately, before any network work.
@@ -164,9 +165,15 @@ class Repository(private val app: Context) {
                 val n = _net.value
                 val anyReachable = (n.smsConfigured && n.smsOk) || (n.bbConfigured && n.bbOk)
                 _net.value = n.copy(online = anyReachable || onlineNow())
-                // Pick up contacts added/edited since the chat rows were stored.
-                Contacts.invalidate()
-                refreshContactNames()
+                // Re-resolve contact names occasionally (walks every chat, so not
+                // on every poll): picks up contacts added or renamed since the
+                // chat rows were stored.
+                val now = System.currentTimeMillis()
+                if (full || now - lastContactRefresh > 600_000) {
+                    lastContactRefresh = now
+                    Contacts.invalidate()
+                    refreshContactNames()
+                }
             } finally {
                 _syncing.value = false
             }
@@ -224,9 +231,14 @@ class Repository(private val app: Context) {
     }
 
     /**
-     * iMessage has no server-side delta, so we list chats and fetch each chat's
-     * messages newer than what we already stored. First run walks every chat;
-     * later runs still walk them (cheap: each request returns only new messages).
+     * iMessage has no server-side delta, so chats are listed and each chat's new
+     * messages fetched individually.
+     *
+     * The chat list already carries each chat's last message, so a routine sync
+     * only requests messages for chats whose last message is newer than what we
+     * stored — typically none. Fetching every chat every time meant one HTTP
+     * round-trip per chat (hundreds), which is what made "Syncing…" hang around.
+     * [allChats] forces the full walk for the first/explicit full sync.
      */
     private suspend fun syncIMessage(allChats: Boolean) {
         val b = bb ?: return
@@ -242,7 +254,11 @@ class Repository(private val app: Context) {
                     val key = if (isGroup) chat.guid else Addr.normalize(participant)
                     upsertBbChat(chat, key, participant, isGroup)
 
-                    val after = maxOf(db.bbCursor(chat.guid), newestBbTs(key))
+                    val after = maxOf(db.bbCursor(chat.guid), db.newestTs(key, Service.IMESSAGE))
+                    // Nothing newer than our cursor: skip the request entirely.
+                    val lastMessageTs = chat.lastMessage?.dateCreated ?: 0L
+                    if (!allChats && after > 0 && lastMessageTs <= after) continue
+
                     val msgs = try {
                         b.messages(chat.guid, afterMs = after)
                     } catch (e: Exception) {
@@ -271,13 +287,10 @@ class Repository(private val app: Context) {
         _net.value = _net.value.copy(bbOk = ok || !_net.value.bbConfigured)
     }
 
-    private fun newestBbTs(chatKey: String): Long =
-        db.messages(chatKey).filter { it.service == Service.IMESSAGE }.maxOfOrNull { it.timestamp } ?: 0L
-
     // ---- chat rows --------------------------------------------------------
 
     private fun upsertSmsChat(convId: String, address: String, snippet: String, ts: Long, hasImage: Boolean) {
-        val existing = db.chats().firstOrNull { it.key == convId }
+        val existing = db.chat(convId)
         val newer = ts >= (existing?.timestamp ?: 0L)
         db.upsertChats(
             listOf(
@@ -300,7 +313,7 @@ class Repository(private val app: Context) {
     }
 
     private fun upsertBbChat(chat: BBChat, key: String, participant: String, isGroup: Boolean) {
-        val existing = db.chats().firstOrNull { it.key == key }
+        val existing = db.chat(key)
         val lm = chat.lastMessage
         val ts = lm?.dateCreated ?: 0L
         val snippet = lm?.text?.takeIf { it.isNotBlank() }
@@ -328,7 +341,7 @@ class Repository(private val app: Context) {
     }
 
     private fun markUnread(convId: String, unread: Boolean) {
-        val existing = db.chats().firstOrNull { it.key == convId } ?: return
+        val existing = db.chat(convId) ?: return
         db.upsertChats(listOf(existing.copy(unread = unread)))
     }
 

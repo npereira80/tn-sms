@@ -167,6 +167,14 @@ class Db(context: Context) : SQLiteOpenHelper(context, "tnwatch.db", null, 2) {
             "SELECT MAX(ts) FROM message WHERE chat_key = ?", arrayOf(chatKey),
         ).use { if (it.moveToFirst() && !it.isNull(0)) it.getLong(0) else 0L }
 
+    /** As [newestTs], restricted to one service. Cheap: MAX() in SQL rather than
+     *  loading a thread's messages into memory. */
+    fun newestTs(chatKey: String, service: Service): Long =
+        readableDatabase.rawQuery(
+            "SELECT MAX(ts) FROM message WHERE chat_key = ? AND service = ?",
+            arrayOf(chatKey, service.name),
+        ).use { if (it.moveToFirst() && !it.isNull(0)) it.getLong(0) else 0L }
+
     // ---- chats ------------------------------------------------------------
 
     fun upsertChats(chats: List<UiChat>) {
@@ -197,6 +205,14 @@ class Db(context: Context) : SQLiteOpenHelper(context, "tnwatch.db", null, 2) {
         }
     }
 
+    /** Single chat row. Used on hot paths instead of scanning [chats]. */
+    fun chat(key: String): UiChat? =
+        readableDatabase.query(
+            "chat",
+            arrayOf("key", "title", "snippet", "ts", "unread", "sms_address", "bb_guid", "is_group", "last_service"),
+            "key = ?", arrayOf(key), null, null, null,
+        ).use { c -> if (c.moveToFirst()) c.toUiChat() else null }
+
     fun chats(): List<UiChat> =
         readableDatabase.query(
             "chat",
@@ -204,30 +220,33 @@ class Db(context: Context) : SQLiteOpenHelper(context, "tnwatch.db", null, 2) {
             null, null, null, null, "ts DESC",
         ).use { c ->
             val out = ArrayList<UiChat>(c.count)
-            while (c.moveToNext()) {
-                val smsAddress = if (c.isNull(5)) null else c.getString(5)
-                val bbGuid = if (c.isNull(6)) null else c.getString(6)
-                val services = buildSet {
-                    if (smsAddress != null) add(Service.SMS)
-                    if (bbGuid != null) add(Service.IMESSAGE)
-                }
-                if (services.isEmpty()) continue
-                out += UiChat(
-                    key = c.getString(0),
-                    title = c.getString(1),
-                    snippet = c.getString(2),
-                    timestamp = c.getLong(3),
-                    unread = c.getInt(4) == 1,
-                    services = services,
-                    smsAddress = smsAddress,
-                    bbChatGuid = bbGuid,
-                    isGroup = c.getInt(7) == 1,
-                    lastService = if (c.isNull(8)) null
-                    else runCatching { Service.valueOf(c.getString(8)) }.getOrNull(),
-                )
-            }
+            while (c.moveToNext()) out += c.toUiChat() ?: continue
             out
         }
+
+    /** Maps the current row of a chat query (column order as above) to [UiChat]. */
+    private fun android.database.Cursor.toUiChat(): UiChat? {
+        val smsAddress = if (isNull(5)) null else getString(5)
+        val bbGuid = if (isNull(6)) null else getString(6)
+        val services = buildSet {
+            if (smsAddress != null) add(Service.SMS)
+            if (bbGuid != null) add(Service.IMESSAGE)
+        }
+        if (services.isEmpty()) return null
+        return UiChat(
+            key = getString(0),
+            title = getString(1),
+            snippet = getString(2),
+            timestamp = getLong(3),
+            unread = getInt(4) == 1,
+            services = services,
+            smsAddress = smsAddress,
+            bbChatGuid = bbGuid,
+            isGroup = getInt(7) == 1,
+            lastService = if (isNull(8)) null
+            else runCatching { Service.valueOf(getString(8)) }.getOrNull(),
+        )
+    }
 
     // ---- outbox (offline send queue) --------------------------------------
 
