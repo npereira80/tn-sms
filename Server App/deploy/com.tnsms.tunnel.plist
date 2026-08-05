@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent for the Cloudflare tunnel. TEMPLATE: __HOME__ filled in by
+  deploy/install-launchd.sh. Runs the named tunnel and restarts it if it exits.
+  Runs as a LaunchAgent (not a Daemon) so it uses the user's ~/.cloudflared
+  credentials.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.tnsms.tunnel</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-lc</string>
+        <string>exec cloudflared tunnel --url http://localhost:8787 run sms-sync</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>StandardOutPath</key>
+    <string>__HOME__/Library/Logs/tnsms-tunnel.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/Library/Logs/tnsms-tunnel.log</string>
+</dict>
+</plist>
