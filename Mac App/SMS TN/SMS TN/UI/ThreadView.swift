@@ -328,7 +328,11 @@ struct MessageBubble: View {
     }
 
     private var statusLine: String {
-        let service = message.isIMessage ? "iMessage" : (isRCS ? "RCS" : "SMS")
+        // A message carrying media went out as an MMS, whatever the stored
+        // service string says — nothing ever writes "MMS" into it, so derive it
+        // from what the message actually contains.
+        let cellular = media.isEmpty ? "SMS" : "MMS"
+        let service = message.isIMessage ? "iMessage" : (isRCS ? "RCS" : cellular)
         var parts = ["\(dateLabel) \(service)"]
         if message.isFromMe {
             switch message.status {
