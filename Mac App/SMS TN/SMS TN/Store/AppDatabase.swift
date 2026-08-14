@@ -389,7 +389,76 @@ nonisolated final class AppDatabase: Sendable {
     func deleteMessages(ids: [String]) async throws {
         guard !ids.isEmpty else { return }
         _ = try await pool.write { db in
+            // Which threads are affected — read before the rows are gone.
+            let affected = Set(try String.fetchAll(
+                db,
+                sql: "SELECT DISTINCT conversationID FROM message WHERE id IN (\(Self.placeholders(ids.count)))",
+                arguments: StatementArguments(ids)))
+
             try MessageRecord.deleteAll(db, keys: ids)
+
+            for conversationID in affected {
+                try Self.refreshSummary(db, conversationID: conversationID)
+            }
+        }
+    }
+
+    private static func placeholders(_ count: Int) -> String {
+        Array(repeating: "?", count: count).joined(separator: ",")
+    }
+
+    /// Repoint a conversation's preview at its newest surviving message.
+    ///
+    /// The list row shows `snippet` and `lastMessageTimestamp`, both cached on the
+    /// conversation. Deleting the newest message left them describing a message
+    /// that no longer exists, so the row kept showing text you'd just removed.
+    ///
+    /// A message with no text of its own (an attachment) contributes an empty
+    /// snippet rather than inheriting the previous one — showing the wrong text is
+    /// worse than showing none.
+    static func refreshSummary(_ db: Database, conversationID: String) throws {
+        let latest = try MessageRecord
+            .filter(Column("conversationID") == conversationID)
+            .order(Column("timestamp").desc)
+            .fetchOne(db)
+
+        guard let latest else {
+            // Nothing left. Leave the row for deleteEmptyConversations to remove,
+            // but stop advertising a message that's gone.
+            try db.execute(
+                sql: "UPDATE conversation SET snippet = NULL WHERE id = ?",
+                arguments: [conversationID])
+            return
+        }
+
+        try db.execute(
+            sql: """
+                UPDATE conversation
+                SET lastMessageTimestamp = ?, snippet = ?
+                WHERE id = ?
+                """,
+            arguments: [latest.timestamp,
+                        latest.textContent.isEmpty ? nil : latest.textContent,
+                        conversationID])
+    }
+
+    /// Fix conversations whose cached preview no longer matches their messages.
+    ///
+    /// Runs at launch, for threads left stale by a build that deleted messages
+    /// without refreshing the summary. Only touches rows that are actually wrong.
+    func repairConversationSummaries() async throws {
+        _ = try await pool.write { db in
+            let stale = try String.fetchAll(db, sql: """
+                SELECT c.id FROM conversation c
+                LEFT JOIN (SELECT conversationID, MAX(timestamp) AS newest
+                           FROM message GROUP BY conversationID) m
+                       ON m.conversationID = c.id
+                WHERE m.newest IS NOT NULL AND c.lastMessageTimestamp <> m.newest
+                """)
+            for conversationID in stale {
+                try Self.refreshSummary(db, conversationID: conversationID)
+            }
+            return stale.count
         }
     }
 

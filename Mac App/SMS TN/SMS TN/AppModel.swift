@@ -94,6 +94,11 @@ final class AppModel {
             observeConversations()
             phase = .ready
 
+            // Threads left showing a preview of a message that was since deleted
+            // repair themselves here, rather than staying wrong until something
+            // new arrives in them.
+            Task { try? await db.repairConversationSummaries() }
+
             let server = ServerClient()
             self.server = server
 
