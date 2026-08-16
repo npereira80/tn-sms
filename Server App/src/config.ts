@@ -42,6 +42,12 @@ export const config = {
 };
 
 export const paths = {
-  db: () => path.join(config.dataDir, "sms.sqlite"),
-  media: () => path.join(config.dataDir, "media"),
+  /** Who exists and which token belongs to whom. The only shared database. */
+  registry: () => path.join(config.dataDir, "users.sqlite"),
+  /** One directory per user: their database and their media. */
+  userDir: (userId: string) => path.join(config.dataDir, "users", userId),
+
+  /** Single-user layout, kept only so an existing install can be migrated. */
+  legacyDb: () => path.join(config.dataDir, "sms.sqlite"),
+  legacyMedia: () => path.join(config.dataDir, "media"),
 };

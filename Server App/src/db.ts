@@ -1,20 +1,18 @@
 import Database from "better-sqlite3";
-import fs from "node:fs";
-import { config, paths } from "./config.js";
 
 /**
- * Single SQLite connection for the whole process. better-sqlite3 is
- * synchronous, which is exactly what a single-node Mac-mini relay wants:
- * no connection pool, no async races over the message table.
+ * Schema for a single user's database.
+ *
+ * There is no process-wide connection any more: each user has their own file
+ * (see users.ts). better-sqlite3 is synchronous, which is what a single-node
+ * Mac-mini relay wants — no pool, no async races over the message table.
  */
-fs.mkdirSync(config.dataDir, { recursive: true });
-fs.mkdirSync(paths.media(), { recursive: true });
+export function openUserDb(file: string): Database.Database {
+  const db = new Database(file);
+  db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON");
 
-export const db = new Database(paths.db());
-db.pragma("journal_mode = WAL");
-db.pragma("foreign_keys = ON");
-
-db.exec(`
+  db.exec(`
 CREATE TABLE IF NOT EXISTS device (
   id              TEXT PRIMARY KEY,
   label           TEXT NOT NULL DEFAULT '',
@@ -57,7 +55,7 @@ CREATE TABLE IF NOT EXISTS attachment (
   id         TEXT PRIMARY KEY,
   message_id TEXT NOT NULL REFERENCES message(id) ON DELETE CASCADE,
   mime       TEXT NOT NULL,
-  path       TEXT NOT NULL,                          -- content-addressed filename (sha256) under data/media
+  path       TEXT NOT NULL,                          -- content-addressed filename (sha256)
   size       INTEGER NOT NULL DEFAULT 0,
   sha256     TEXT NOT NULL,
   name       TEXT                                    -- original filename, if any
@@ -84,28 +82,23 @@ CREATE TABLE IF NOT EXISTS send_request (
 CREATE TABLE IF NOT EXISTS deletion (
   content_hash    TEXT PRIMARY KEY,                   -- cross-device identity of the removed message
   conversation_id TEXT,
-  message_id      TEXT,                               -- server nanoid the message had (lets id-keyed clients like the Mac delete durably via /delta)
+  message_id      TEXT,                               -- server nanoid the message had
   ts              INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_deletion_ts ON deletion(ts);
 `);
 
-// Migration for databases created before `deletion.message_id` existed:
-// add the column if it isn't there yet. (CREATE TABLE IF NOT EXISTS above
-// never alters an existing table.)
-const deletionCols = db.prepare(`PRAGMA table_info(deletion)`).all() as { name: string }[];
-if (!deletionCols.some((c) => c.name === "message_id")) {
-  db.exec(`ALTER TABLE deletion ADD COLUMN message_id TEXT`);
-}
+  // Migrations for databases created before a column existed. CREATE TABLE IF
+  // NOT EXISTS never alters an existing table, so each is added explicitly.
+  const addColumnIfMissing = (table: string, column: string, ddl: string) => {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    if (cols.length && !cols.some((c) => c.name === column)) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+    }
+  };
+  addColumnIfMissing("deletion", "message_id", "message_id TEXT");
+  addColumnIfMissing("attachment", "name", "name TEXT");
+  addColumnIfMissing("send_request", "attachments_json", "attachments_json TEXT");
 
-// Migration: add attachment.name to databases created before it existed.
-const attachmentCols = db.prepare(`PRAGMA table_info(attachment)`).all() as { name: string }[];
-if (attachmentCols.length && !attachmentCols.some((c) => c.name === "name")) {
-  db.exec(`ALTER TABLE attachment ADD COLUMN name TEXT`);
-}
-
-// Migration: add send_request.attachments_json for relayed MMS.
-const sendCols = db.prepare(`PRAGMA table_info(send_request)`).all() as { name: string }[];
-if (sendCols.length && !sendCols.some((c) => c.name === "attachments_json")) {
-  db.exec(`ALTER TABLE send_request ADD COLUMN attachments_json TEXT`);
+  return db;
 }

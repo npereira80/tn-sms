@@ -4,15 +4,24 @@ import type { WebSocket } from "ws";
  * In-memory registry of live WebSocket connections keyed by device id.
  * Used to push realtime events to clients and dispatch send-commands to
  * the primary Android agent.
+ *
+ * Every connection carries the user it belongs to, because a broadcast must
+ * never cross accounts: one family member's incoming message is not an event
+ * another's devices should ever see.
  */
 class Hub {
   private sockets = new Map<string, Set<WebSocket>>();
+  private owner = new Map<string, string>();          // deviceId -> userId
 
-  add(deviceId: string, ws: WebSocket) {
+  add(userId: string, deviceId: string, ws: WebSocket) {
     let set = this.sockets.get(deviceId);
     if (!set) this.sockets.set(deviceId, (set = new Set()));
     set.add(ws);
-    ws.on("close", () => set!.delete(ws));
+    this.owner.set(deviceId, userId);
+    ws.on("close", () => {
+      set!.delete(ws);
+      if (set!.size === 0) this.owner.delete(deviceId);
+    });
   }
 
   /** Send to every connection of one device. Returns true if delivered. */
@@ -25,13 +34,14 @@ class Hub {
   }
 
   /**
-   * Fan-out to all connected clients (e.g. new inbound message, primary change).
-   * `exceptDeviceId` skips the device that triggered the change so it never
-   * receives the echo of its own action (it already applied it locally).
+   * Fan-out to one user's connected clients (e.g. new inbound message, primary
+   * change). `exceptDeviceId` skips the device that triggered the change so it
+   * never receives the echo of its own action (it already applied it locally).
    */
-  broadcast(event: unknown, exceptDeviceId?: string) {
+  broadcast(userId: string, event: unknown, exceptDeviceId?: string) {
     const payload = JSON.stringify(event);
     for (const [deviceId, set] of this.sockets) {
+      if (this.owner.get(deviceId) !== userId) continue;
       if (exceptDeviceId && deviceId === exceptDeviceId) continue;
       for (const ws of set) safeSend(ws, payload);
     }

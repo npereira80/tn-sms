@@ -1,4 +1,4 @@
-import { db } from "./db.js";
+import type { UserContext } from "./users.js";
 
 /**
  * Compact read API for very constrained watch clients (Garmin Connect IQ).
@@ -34,9 +34,9 @@ function trim(text: string, len: number): string {
  * Recent conversations, newest first.
  * Shape: { c: [ { i: id, a: address, s: snippet, t: ts, u: unread(0|1) } ] }
  */
-export function watchChats(limitRaw?: unknown) {
+export function watchChats(ctx: UserContext, limitRaw?: unknown) {
   const limit = clamp(limitRaw, 20, MAX_CHATS);
-  const rows = db
+  const rows = ctx.db
     .prepare(
       `SELECT id, address, snippet, last_ts, unread
          FROM conversation
@@ -64,11 +64,11 @@ export function watchChats(limitRaw?: unknown) {
  * top-to-bottom without sorting.
  * Shape: { m: [ { i: id, d: 0|1 (1 = from me), b: body, t: ts, p: 1 if photo } ] }
  */
-export function watchMessages(conversationId: string, limitRaw?: unknown) {
+export function watchMessages(ctx: UserContext, conversationId: string, limitRaw?: unknown) {
   const limit = clamp(limitRaw, 20, MAX_MESSAGES);
   if (!conversationId) return { m: [] };
 
-  const rows = db
+  const rows = ctx.db
     .prepare(
       `SELECT m.id, m.direction, m.body, m.ts,
               (SELECT COUNT(*) FROM attachment a WHERE a.message_id = m.id) AS atts

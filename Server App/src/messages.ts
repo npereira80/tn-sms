@@ -1,4 +1,4 @@
-import { db } from "./db.js";
+import type { UserContext } from "./users.js";
 import { hub } from "./hub.js";
 import { contentHash, normalizeAddress, now } from "./util.js";
 import { nanoid } from "nanoid";
@@ -21,10 +21,10 @@ export interface IncomingMessage {
 }
 
 /** Attachment rows for a set of message ids, grouped by message id. */
-function attachmentsByMessage(messageIds: string[]): Map<string, any[]> {
+function attachmentsByMessage(ctx: UserContext, messageIds: string[]): Map<string, any[]> {
   const out = new Map<string, any[]>();
   if (!messageIds.length) return out;
-  const q = db.prepare(
+  const q = ctx.db.prepare(
     `SELECT id, message_id, mime, size, sha256, name FROM attachment WHERE message_id = ?`,
   );
   for (const mid of messageIds) {
@@ -39,15 +39,15 @@ function attachmentsByMessage(messageIds: string[]): Map<string, any[]> {
  * backfills from multiple phones never create duplicates. Returns counts
  * and broadcasts newly-accepted messages to connected clients.
  */
-export function ingest(sourceDeviceId: string, items: IncomingMessage[]) {
+export function ingest(ctx: UserContext, sourceDeviceId: string, items: IncomingMessage[]) {
   let accepted = 0;
   let duplicate = 0;
   let suppressed = 0;
   const ts = now();
 
-  const findByHash = db.prepare(`SELECT id FROM message WHERE content_hash = ?`);
-  const findTomb = db.prepare(`SELECT content_hash FROM deletion WHERE content_hash = ?`);
-  const upsertConv = db.prepare(
+  const findByHash = ctx.db.prepare(`SELECT id FROM message WHERE content_hash = ?`);
+  const findTomb = ctx.db.prepare(`SELECT content_hash FROM deletion WHERE content_hash = ?`);
+  const upsertConv = ctx.db.prepare(
     `INSERT INTO conversation (id, address, last_ts, snippet, unread)
      VALUES (@id, @address, @ts, @snippet, @unread)
      ON CONFLICT(id) DO UPDATE SET
@@ -65,7 +65,7 @@ export function ingest(sourceDeviceId: string, items: IncomingMessage[]) {
          ELSE conversation.unread
        END`,
   );
-  const insertMsg = db.prepare(
+  const insertMsg = ctx.db.prepare(
     `INSERT INTO message
        (id, conversation_id, direction, address, body, ts, type, provider_id,
         source_device_id, content_hash, status, updated_at)
@@ -73,13 +73,13 @@ export function ingest(sourceDeviceId: string, items: IncomingMessage[]) {
        (@id, @conversation_id, @direction, @address, @body, @ts, @type, @provider_id,
         @source_device_id, @content_hash, @status, @updated_at)`,
   );
-  const insertAttachment = db.prepare(
+  const insertAttachment = ctx.db.prepare(
     `INSERT INTO attachment (id, message_id, mime, path, size, sha256, name)
      VALUES (@id, @message_id, @mime, @path, @size, @sha256, @name)`,
   );
 
   const accepts: any[] = [];
-  const tx = db.transaction((batch: IncomingMessage[]) => {
+  const tx = ctx.db.transaction((batch: IncomingMessage[]) => {
     for (const m of batch) {
       const hash = contentHash(m);
       if (findByHash.get(hash)) { duplicate++; continue; }
@@ -133,24 +133,24 @@ export function ingest(sourceDeviceId: string, items: IncomingMessage[]) {
   tx(items);
 
   // Don't echo the ingested messages back to the device that just pushed them.
-  for (const row of accepts) hub.broadcast({ type: "message", message: row }, sourceDeviceId);
+  for (const row of accepts) hub.broadcast(ctx.userId, { type: "message", message: row }, sourceDeviceId);
   return { accepted, duplicate, suppressed };
 }
 
 /** Messages/conversations changed since a cursor (updated_at). Delta sync for clients. */
-export function delta(since: number) {
-  const messages = db
+export function delta(ctx: UserContext, since: number) {
+  const messages = ctx.db
     .prepare(`SELECT * FROM message WHERE updated_at > ? ORDER BY updated_at ASC LIMIT 2000`)
     .all(since) as any[];
   // Attach each message's media metadata so clients can render/download it.
-  const attByMsg = attachmentsByMessage(messages.map((m) => m.id));
+  const attByMsg = attachmentsByMessage(ctx, messages.map((m) => m.id));
   for (const m of messages) {
     const rows = attByMsg.get(m.id);
     if (rows) m.attachments = rows.map(({ id, mime, size, sha256, name }) => ({ id, mime, size, sha256, name }));
   }
   // Deletion tombstones since the cursor so a polling client removes messages
   // that were hard-deleted elsewhere (they no longer appear in `message`).
-  const deletions = db
+  const deletions = ctx.db
     .prepare(`SELECT content_hash, conversation_id, message_id, ts FROM deletion WHERE ts > ? ORDER BY ts ASC LIMIT 2000`)
     .all(since) as { content_hash: string; conversation_id: string | null; message_id: string | null; ts: number }[];
   // Advance the cursor past whichever stream (messages or deletions) reached
@@ -160,7 +160,7 @@ export function delta(since: number) {
   const cursor = Math.max(since, lastMsg, lastDel);
   // Current per-conversation read state so clients render unread correctly on
   // a fresh pull (the phone's read snapshot is otherwise a live-only broadcast).
-  const conversations = db.prepare(`SELECT id, unread FROM conversation`).all();
+  const conversations = ctx.db.prepare(`SELECT id, unread FROM conversation`).all();
   return { messages, conversations, deletions, cursor };
 }
 
@@ -170,8 +170,8 @@ export function delta(since: number) {
  * client that missed one, or that stored a message under a different id, needs a
  * positive list to converge against.
  */
-export function conversationMessageKeys(conversationId: string) {
-  const rows = db
+export function conversationMessageKeys(ctx: UserContext, conversationId: string) {
+  const rows = ctx.db
     .prepare(`SELECT id, content_hash FROM message WHERE conversation_id = ?`)
     .all(conversationId) as { id: string; content_hash: string }[];
   return {
@@ -180,8 +180,8 @@ export function conversationMessageKeys(conversationId: string) {
   };
 }
 
-export function setStatus(messageId: string, status: string) {
-  db.prepare(`UPDATE message SET status = ?, updated_at = ? WHERE id = ?`)
+export function setStatus(ctx: UserContext, messageId: string, status: string) {
+  ctx.db.prepare(`UPDATE message SET status = ?, updated_at = ? WHERE id = ?`)
     .run(status, now(), messageId);
 }
 
@@ -190,25 +190,25 @@ export function setStatus(messageId: string, status: string) {
  * stored message whose identity is no longer present is hard-deleted (spec
  * §3.2 mirror semantics) and a delete is broadcast to clients.
  */
-export function reconcile(items: IncomingMessage[]) {
+export function reconcile(ctx: UserContext, items: IncomingMessage[]) {
   const alive = new Set(items.map(contentHash));
-  const rows = db
+  const rows = ctx.db
     .prepare(`SELECT id, content_hash, conversation_id FROM message`)
     .all() as { id: string; content_hash: string; conversation_id: string }[];
-  const del = db.prepare(`DELETE FROM message WHERE id = ?`);
+  const del = ctx.db.prepare(`DELETE FROM message WHERE id = ?`);
   const deleted: { id: string; content_hash: string; conversation_id: string }[] = [];
-  const tx = db.transaction(() => {
+  const tx = ctx.db.transaction(() => {
     for (const r of rows) {
       if (!alive.has(r.content_hash)) {
         del.run(r.id);
-        tombstone.run({ content_hash: r.content_hash, conversation_id: r.conversation_id, message_id: r.id, ts: now() });
+        tombstoneStmt(ctx).run({ content_hash: r.content_hash, conversation_id: r.conversation_id, message_id: r.id, ts: now() });
         deleted.push({ id: r.id, content_hash: r.content_hash, conversation_id: r.conversation_id });
       }
     }
   });
   tx();
   for (const r of deleted) {
-    hub.broadcast({ type: "message_deleted", id: r.id, contentHash: r.content_hash, conversationId: r.conversation_id });
+    hub.broadcast(ctx.userId, { type: "message_deleted", id: r.id, contentHash: r.content_hash, conversationId: r.conversation_id });
   }
   return { deleted: deleted.length };
 }
@@ -217,14 +217,18 @@ export function reconcile(items: IncomingMessage[]) {
 // identity a polling client matches on to remove its local copy; `message_id`
 // is the server nanoid the row had, so an id-keyed client (the Mac) can delete
 // durably from a /delta pull even if it missed the realtime frame.
-const tombstone = db.prepare(
-  `INSERT INTO deletion (content_hash, conversation_id, message_id, ts)
-   VALUES (@content_hash, @conversation_id, @message_id, @ts)
-   ON CONFLICT(content_hash) DO UPDATE SET
-     ts = excluded.ts,
-     conversation_id = excluded.conversation_id,
-     message_id = COALESCE(excluded.message_id, deletion.message_id)`,
-);
+//
+// Prepared per call rather than once at module load: each user has their own
+// database, so there is no single connection to prepare against.
+const tombstoneStmt = (ctx: UserContext) =>
+  ctx.db.prepare(
+    `INSERT INTO deletion (content_hash, conversation_id, message_id, ts)
+     VALUES (@content_hash, @conversation_id, @message_id, @ts)
+     ON CONFLICT(content_hash) DO UPDATE SET
+       ts = excluded.ts,
+       conversation_id = excluded.conversation_id,
+       message_id = COALESCE(excluded.message_id, deletion.message_id)`,
+  );
 
 /**
  * Client-initiated delete (Mac → server). Removes messages and/or a whole
@@ -232,36 +236,36 @@ const tombstone = db.prepare(
  * NOTE: this does NOT touch the phone's SMS store (a non-default app can't
  * write it); the phone keeps its copy. A full re-sync would re-import it.
  */
-export function deleteItems(input: {
+export function deleteItems(ctx: UserContext, input: {
   messageIds?: string[];
   messageHashes?: string[];
   conversationId?: string;
 }, actingDeviceId?: string) {
   let deleted = 0;
-  const tx = db.transaction(() => {
+  const tx = ctx.db.transaction(() => {
     if (input.conversationId) {
       // Tombstone every message in the thread by content_hash so polling
       // clients remove their copies, then drop the messages + conversation.
-      const rows = db
+      const rows = ctx.db
         .prepare(`SELECT id, content_hash FROM message WHERE conversation_id = ?`)
         .all(input.conversationId) as { id: string; content_hash: string }[];
       for (const r of rows) {
-        tombstone.run({ content_hash: r.content_hash, conversation_id: input.conversationId, message_id: r.id, ts: now() });
+        tombstoneStmt(ctx).run({ content_hash: r.content_hash, conversation_id: input.conversationId, message_id: r.id, ts: now() });
       }
-      db.prepare(`DELETE FROM message WHERE conversation_id = ?`).run(input.conversationId);
-      db.prepare(`DELETE FROM conversation WHERE id = ?`).run(input.conversationId);
+      ctx.db.prepare(`DELETE FROM message WHERE conversation_id = ?`).run(input.conversationId);
+      ctx.db.prepare(`DELETE FROM conversation WHERE id = ?`).run(input.conversationId);
       deleted += rows.length;
-      hub.broadcast({ type: "conversation_deleted", conversationId: input.conversationId }, actingDeviceId);
+      hub.broadcast(ctx.userId, { type: "conversation_deleted", conversationId: input.conversationId }, actingDeviceId);
     }
     if (input.messageIds?.length) {
-      const sel = db.prepare(`SELECT conversation_id, content_hash FROM message WHERE id = ?`);
-      const del = db.prepare(`DELETE FROM message WHERE id = ?`);
+      const sel = ctx.db.prepare(`SELECT conversation_id, content_hash FROM message WHERE id = ?`);
+      const del = ctx.db.prepare(`DELETE FROM message WHERE id = ?`);
       for (const id of input.messageIds) {
         const row = sel.get(id) as { conversation_id: string; content_hash: string } | undefined;
         del.run(id);
-        if (row) tombstone.run({ content_hash: row.content_hash, conversation_id: row.conversation_id, message_id: id, ts: now() });
+        if (row) tombstoneStmt(ctx).run({ content_hash: row.content_hash, conversation_id: row.conversation_id, message_id: id, ts: now() });
         deleted++;
-        hub.broadcast({
+        hub.broadcast(ctx.userId, {
           type: "message_deleted",
           id,
           contentHash: row?.content_hash ?? null,
@@ -272,14 +276,14 @@ export function deleteItems(input: {
     if (input.messageHashes?.length) {
       // Delete by cross-device content identity (used by the Android fork, which
       // doesn't store the server's nanoid message ids).
-      const sel = db.prepare(`SELECT id, conversation_id FROM message WHERE content_hash = ?`);
-      const del = db.prepare(`DELETE FROM message WHERE content_hash = ?`);
+      const sel = ctx.db.prepare(`SELECT id, conversation_id FROM message WHERE content_hash = ?`);
+      const del = ctx.db.prepare(`DELETE FROM message WHERE content_hash = ?`);
       for (const hash of input.messageHashes) {
         const row = sel.get(hash) as { id: string; conversation_id: string } | undefined;
         del.run(hash);
-        tombstone.run({ content_hash: hash, conversation_id: row?.conversation_id ?? null, message_id: row?.id ?? null, ts: now() });
+        tombstoneStmt(ctx).run({ content_hash: hash, conversation_id: row?.conversation_id ?? null, message_id: row?.id ?? null, ts: now() });
         if (row) deleted++;
-        hub.broadcast({
+        hub.broadcast(ctx.userId, {
           type: "message_deleted",
           id: row?.id ?? "",
           contentHash: hash,
@@ -297,22 +301,22 @@ export function deleteItems(input: {
  * read sync). Sets each conversation's unread flag and broadcasts the change so
  * connected clients (the Mac) reflect it live.
  */
-export function applyReadUpdates(updates: { address: string; unread: boolean }[], actingDeviceId?: string) {
+export function applyReadUpdates(ctx: UserContext, updates: { address: string; unread: boolean }[], actingDeviceId?: string) {
   if (!updates.length) return;
   // Upsert (not bare UPDATE): a read pushed for a conversation the server hasn't
   // ingested yet is still recorded, so it survives a later /delta pull instead
   // of being silently dropped when the WHERE matched no row.
-  const upd = db.prepare(
+  const upd = ctx.db.prepare(
     `INSERT INTO conversation (id, address, last_ts, snippet, unread)
      VALUES (@id, @id, 0, '', @unread)
      ON CONFLICT(id) DO UPDATE SET unread = excluded.unread`,
   );
-  const tx = db.transaction(() => {
+  const tx = ctx.db.transaction(() => {
     for (const u of updates) {
       const id = normalizeAddress(u.address);
       if (!id) continue;
       upd.run({ id, unread: u.unread ? 1 : 0 });
-      hub.broadcast({ type: "conversation_read", conversationId: id, unread: u.unread }, actingDeviceId);
+      hub.broadcast(ctx.userId, { type: "conversation_read", conversationId: id, unread: u.unread }, actingDeviceId);
     }
   });
   tx();
