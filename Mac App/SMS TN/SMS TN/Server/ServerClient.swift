@@ -44,17 +44,50 @@ nonisolated final class ServerClient: @unchecked Sendable {
 
     // MARK: - Registration
 
-    /// Loads a stored device token or registers once with the server.
+    /// Loads the stored token for this Mac's account, if there is one.
+    ///
+    /// There is no anonymous registration any more: the server keeps a database
+    /// per family member, so a device belongs to a person or to nobody. Signing
+    /// in is [startSignIn] / [completeSignIn].
     func ensureRegistered() async throws {
-        if let existing = try KeychainStore.serverToken.read() {
-            token = existing
-            return
+        guard let existing = try KeychainStore.serverToken.read() else {
+            throw ServerError.notRegistered
         }
-        var req = URLRequest(url: base.appending(path: "devices/register"))
+        token = existing
+    }
+
+    var isSignedIn: Bool { token != nil }
+
+    /// Ask the server to send a sign-in code to the devices already on [email]'s
+    /// account — normally the person's phone.
+    ///
+    /// This Mac has no SIM, so it can't prove a number the way a phone does;
+    /// requiring the code from a device already signed in means having that
+    /// phone to hand. If no device is online the server returns the code itself
+    /// rather than locking you out, and that's reported back so the UI can say so.
+    func startSignIn(email: String) async throws -> (challengeId: String, code: String?) {
+        var req = URLRequest(url: base.appending(path: "auth/start-remote"))
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: [
             "secret": ServerConfig.registrationSecret,
+            "email": email,
+        ])
+        let (data, resp) = try await session.data(for: req)
+        try Self.checkOK(resp)
+        let body = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        guard let id = body["challengeId"] as? String else { throw ServerError.notRegistered }
+        return (id, body["code"] as? String)
+    }
+
+    /// Finish signing in and keep the token for this account.
+    func completeSignIn(challengeId: String, code: String) async throws {
+        var req = URLRequest(url: base.appending(path: "auth/verify"))
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: [
+            "challengeId": challengeId,
+            "code": code,
             "label": ServerConfig.deviceLabel,
             "platform": "mac",
         ])
@@ -63,6 +96,12 @@ nonisolated final class ServerClient: @unchecked Sendable {
         let reg = try JSONDecoder().decode(ServerRegisterResponse.self, from: data)
         token = reg.token
         try KeychainStore.serverToken.write(reg.token)
+    }
+
+    /// Forget this account on this Mac. The local message copy is left alone.
+    func signOut() throws {
+        token = nil
+        try KeychainStore.serverToken.delete()
     }
 
     // MARK: - History

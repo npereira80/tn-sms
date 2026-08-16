@@ -38,13 +38,18 @@ class Hub {
    * change). `exceptDeviceId` skips the device that triggered the change so it
    * never receives the echo of its own action (it already applied it locally).
    */
-  broadcast(userId: string, event: unknown, exceptDeviceId?: string) {
+  broadcast(userId: string, event: unknown, exceptDeviceId?: string): boolean {
     const payload = JSON.stringify(event);
+    let delivered = false;
     for (const [deviceId, set] of this.sockets) {
       if (this.owner.get(deviceId) !== userId) continue;
       if (exceptDeviceId && deviceId === exceptDeviceId) continue;
-      for (const ws of set) safeSend(ws, payload);
+      for (const ws of set) {
+        safeSend(ws, payload);
+        delivered = true;
+      }
     }
+    return delivered;
   }
 
   isOnline(deviceId: string): boolean {

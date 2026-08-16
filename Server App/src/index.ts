@@ -5,7 +5,7 @@ import { z } from "zod";
 import { config } from "./config.js";
 import { hub } from "./hub.js";
 import {
-  userContext, userForToken, startSignup, verifySignup, pruneSignups, userById,
+  userContext, userForToken, startSignup, verifySignup, pruneSignups, userById, userByEmail,
   type UserContext,
 } from "./users.js";
 import { migrateLegacyInstall } from "./migrate.js";
@@ -88,6 +88,32 @@ app.post("/auth/verify", (req, res) => {
   const ctx = userContext(result.user.id);
   const device = registerDevice(ctx, p.data.label, p.data.platform);
   res.json({ ...device, userId: result.user.id, email: result.user.email });
+});
+
+// A Mac has no SIM, so it can't text itself. Instead the code is pushed to the
+// devices already signed in to that account — in practice the person's phone —
+// and they type it in. That's a real check rather than theatre: it requires
+// having the account's phone in hand.
+const signinRemoteBody = z.object({
+  secret: z.string(),
+  email: z.string().email(),
+});
+app.post("/auth/start-remote", (req, res) => {
+  const p = signinRemoteBody.safeParse(req.body);
+  if (!p.success) return res.status(400).json({ error: p.error.message });
+  if (p.data.secret !== config.registrationSecret) return res.status(403).json({ error: "bad secret" });
+
+  const user = userByEmail(p.data.email);
+  if (!user) return res.status(404).json({ error: "no_such_account" });
+
+  pruneSignups();
+  const { challengeId, code } = startSignup(user.email, user.phone ?? "");
+  const delivered = hub.broadcast(user.id, { type: "signin_code", code });
+
+  // Nobody online to show the code: hand it back rather than locking the person
+  // out of their own server. Same bar as the phone's self-text — the shared
+  // secret is what stands between a stranger and this endpoint.
+  res.json(delivered ? { challengeId, delivered: true } : { challengeId, delivered: false, code });
 });
 
 /** Who this token belongs to — lets a client show the signed-in account. */

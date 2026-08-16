@@ -55,6 +55,12 @@ final class AppModel {
     private(set) var threadMedia: [String: [MediaRecord]] = [:]  // messageID -> media
     private(set) var syncRunning = false
 
+    /// Whether this Mac is attached to a family member's account. Nothing syncs
+    /// until it is: the server keeps a separate database per person.
+    private(set) var signedIn = false
+    private(set) var signInPending: (challengeId: String, email: String)?
+    private(set) var signInMessage: String?
+
     let otpCenter = OTPCenter()
 
     private var bridge: BridgeClient?          // v2 (dormant): Google web protocol
@@ -137,6 +143,50 @@ final class AppModel {
         await bridge?.disconnect()
     }
 
+    // MARK: - Account
+
+    /// Ask the server to push a code to the devices already on this account.
+    /// Returns the code when nothing was online to receive it, so the UI can show
+    /// it rather than leaving the person stuck.
+    func beginSignIn(email: String) async -> String? {
+        guard let server else { return nil }
+        signInMessage = nil
+        do {
+            let (challengeId, code) = try await server.startSignIn(email: email)
+            signInPending = (challengeId, email)
+            if code == nil {
+                signInMessage = "Check your phone for the code."
+            }
+            return code
+        } catch {
+            signInMessage = "Couldn't reach the server, or that email has no account yet. "
+                + "Sign in on your phone first."
+            return nil
+        }
+    }
+
+    func completeSignIn(code: String) async {
+        guard let server, let pending = signInPending else { return }
+        do {
+            try await server.completeSignIn(challengeId: pending.challengeId, code: code)
+            signInPending = nil
+            signInMessage = nil
+            signedIn = true
+            connectionState = .connecting
+            serverTask?.cancel()
+            serverTask = Task { await runSync() }
+        } catch {
+            signInMessage = "That code didn't work. Codes expire after ten minutes."
+        }
+    }
+
+    func signOut() async {
+        try? server?.signOut()
+        serverTask?.cancel()
+        signedIn = false
+        connectionState = .disconnected
+    }
+
     // MARK: - v3 server sync
 
     private func runServerSync(server: ServerClient, db: AppDatabase) async {
@@ -148,9 +198,26 @@ final class AppModel {
             UserDefaults.standard.set(true, forKey: "v3ResetDone")
         }
 
-        // Initial history pull (delta since stored cursor; 0 = full history).
+        // Nothing syncs until this Mac says whose account it is: the server keeps
+        // a database per family member.
         do {
             try await server.ensureRegistered()
+            signedIn = true
+        } catch {
+            signedIn = false
+            connectionState = .disconnected
+            log.info("No account on this Mac yet — waiting for sign-in")
+            return
+        }
+
+        await runSync()
+    }
+
+    /// Pull history and then follow the realtime stream. Split out of [start] so
+    /// signing in can begin syncing without relaunching the app.
+    private func runSync() async {
+        guard let db, let server else { return }
+        do {
             let since = Int64((try? await db.kvGet("serverCursor")) ?? "") ?? 0
             syncRunning = true
             let delta = try await server.fetchDelta(since: since)

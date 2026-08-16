@@ -23,7 +23,13 @@ struct RootView: View {
                 PairingView()
 
             case .ready:
-                MainSplitView()
+                // Signed out means there's no account to sync, so show the
+                // sign-in rather than an empty inbox that never fills.
+                if model.signedIn {
+                    MainSplitView()
+                } else {
+                    SignInView()
+                }
 
             case .fatal(let message):
                 VStack(spacing: 12) {
