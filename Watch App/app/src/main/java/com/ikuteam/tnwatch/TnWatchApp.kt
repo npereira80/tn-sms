@@ -38,7 +38,7 @@ class TnWatchApp : Application() {
     /**
      * Persists any uncaught exception to files/crash.txt, so a crash can be read
      * without a working logcat:
-     *   adb -s <watch> shell run-as com.bluebubbles.messaging cat files/crash.txt
+     *   adb -s <watch> shell run-as com.ikuteam.bubbles cat files/crash.txt
      */
     private fun installCrashLogger() {
         val previous = Thread.getDefaultUncaughtExceptionHandler()

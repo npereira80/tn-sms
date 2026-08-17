@@ -77,7 +77,7 @@ class MainActivity : ComponentActivity() {
     /**
      * Manual config override, for setup/debugging without the phone:
      *
-     *   adb shell am start -n com.bluebubbles.messaging/com.ikuteam.tnwatch.MainActivity \
+     *   adb shell am start -n com.ikuteam.bubbles/com.ikuteam.tnwatch.MainActivity \
      *     --es syncUrl https://sms.example.net --es syncSecret SECRET \
      *     --es bbUrl https://bb.example.com --es bbPassword PASSWORD
      *

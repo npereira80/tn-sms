@@ -49,7 +49,7 @@ Data Layer — the watch never asks you to type them.
 
 **Requirement:** the Wear Data Layer only shares data between apps with the
 **same applicationId AND the same signing key**. That's why this module sets
-`applicationId = "com.bluebubbles.messaging"` (matching the phone app's `prod`
+`applicationId = "com.ikuteam.bubbles"` (matching the phone app's `prod`
 flavor) while keeping `com.ikuteam.tnwatch` as the Kotlin package. Debug builds
 share the default debug key, so a debug watch + debug phone pair works.
 
@@ -59,7 +59,7 @@ Useful for first-run testing or if provisioning misbehaves:
 
 ```bash
 S="<watch-adb-serial>"
-adb -s "$S" shell am start -n com.bluebubbles.messaging/com.ikuteam.tnwatch.MainActivity \
+adb -s "$S" shell am start -n com.ikuteam.bubbles/com.ikuteam.tnwatch.MainActivity \
   --es syncUrl https://sms.tn-services.net --es syncSecret 'YOUR_SECRET' \
   --es bbUrl https://your-bb-host --es bbPassword 'YOUR_BB_PASSWORD'
 ```
