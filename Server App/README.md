@@ -19,6 +19,33 @@ Smoke-test it (server running in another terminal):
 npm run harness                # registers phones, dedups, elects primary, dispatches a send
 ```
 
+## Upgrading an existing single-user install
+
+Each person now gets their own database, and the old `data/sms.sqlite` is adopted
+into one account on first start. That move is a rename, not a copy, so back the
+directory up before starting, and set `OWNER_EMAIL` in `.env` first. It is read
+once and never again.
+
+```bash
+cp -R data "data.backup-$(date +%F)"
+git pull
+npm install                    # better-sqlite3 is native; rebuilds if node moved
+npm run build
+launchctl kickstart -k "gui/$(id -u)/com.tnsms.server"
+tail -f ~/Library/Logs/tnsms-server.log
+```
+
+The log names the account and the number of device tokens carried over. Phones
+and Macs already paired keep working: their tokens are re-indexed, not reissued.
+
+Isolation between accounts has its own check. Point it at a throwaway data dir,
+never the live one:
+
+```bash
+DATA_DIR=/tmp/tn-test REGISTRATION_SECRET=test PORT=8799 npm start &
+./scripts/smoke-multiuser.sh
+```
+
 ## API
 
 | Method | Path | Auth | Purpose |
