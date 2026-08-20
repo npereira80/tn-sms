@@ -110,10 +110,20 @@ app.post("/auth/start-remote", (req, res) => {
   const { challengeId, code } = startSignup(user.email, user.phone ?? "");
   const delivered = hub.broadcast(user.id, { type: "signin_code", code });
 
-  // Nobody online to show the code: hand it back rather than locking the person
-  // out of their own server. Same bar as the phone's self-text — the shared
-  // secret is what stands between a stranger and this endpoint.
-  res.json(delivered ? { challengeId, delivered: true } : { challengeId, delivered: false, code });
+  // The code always comes back, whether or not a socket took it.
+  //
+  // Withholding it when `delivered` was true assumed an open socket meant a
+  // human would see a code, and that isn't the same thing: the Mac has no
+  // handler for the event, and on Android it's a snackbar that a backgrounded
+  // app never shows. The result was a phone stuck on a code-entry prompt for a
+  // code nothing had displayed, with no way to recover — the code is stored
+  // hashed, so not even the server could say what it had been.
+  //
+  // This is the same bar as the phone's self-text, which also hands the code to
+  // the client: the shared secret is what stands between a stranger and this
+  // endpoint. `delivered` stays in the response, now purely as a hint for what
+  // to tell the person to check.
+  res.json({ challengeId, delivered, code });
 });
 
 /** Who this token belongs to — lets a client show the signed-in account. */
