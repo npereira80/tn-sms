@@ -88,6 +88,26 @@ export function userContext(userId: string): UserContext {
   return ctx;
 }
 
+/**
+ * Close and forget a cached handle so the next [userContext] reopens the file.
+ *
+ * Needed because a cached better-sqlite3 handle holds an open fd to an inode,
+ * not to a path. If anything replaces the file underneath it — the legacy
+ * migration renaming a database into place is the one case — the handle keeps
+ * reading and writing the old, now-unlinked file, silently. Every query returns
+ * the pre-move contents and every write lands in a file nothing can open again.
+ */
+export function resetContext(userId: string) {
+  const ctx = contexts.get(userId);
+  if (!ctx) return;
+  try {
+    ctx.db.close();
+  } catch {
+    /* already closed */
+  }
+  contexts.delete(userId);
+}
+
 export function userByEmail(email: string): UserRow | undefined {
   return registry.prepare(`SELECT * FROM user WHERE email = ?`).get(email) as UserRow | undefined;
 }

@@ -12,7 +12,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "harness": "tsx scripts/harness.ts"
+    "harness": "tsx scripts/harness.ts",
+    "repair": "tsx scripts/repair-account.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",

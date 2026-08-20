@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { config, paths } from "./config.js";
-import { createUser, listUsers, recordToken, userContext } from "./users.js";
+import { createUser, listUsers, recordToken, resetContext, userContext } from "./users.js";
 
 /**
  * Adopt an existing single-user install into the multi-user layout.
@@ -42,6 +42,13 @@ export function migrateLegacyInstall(email: string | null): void {
   } else {
     fs.mkdirSync(newMedia, { recursive: true });
   }
+
+  // createUser() opened an empty database at the destination path before the
+  // renames above replaced the file. That cached handle now points at an
+  // unlinked inode, so reading the device table through it returns nothing and
+  // every later write in this process disappears. Drop it and reopen the file
+  // that is actually on disk.
+  resetContext(user.id);
 
   // Re-index the tokens those devices are already using, so nothing has to be
   // re-paired. The hashes come across as-is; we never held the plaintext.
