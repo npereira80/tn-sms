@@ -33,5 +33,13 @@ echo "Done. Both services are running now and will start on every login."
 echo "Logs: ~/Library/Logs/tnsms-server.log  ~/Library/Logs/tnsms-tunnel.log"
 echo
 echo "Build the server first if you haven't: npm run build"
-echo "For a headless reboot, enable auto-login:"
+echo
+echo "These are LaunchAgents, not Daemons: they start at LOGIN, not at boot."
+echo "That is deliberate - the tunnel needs ~/.cloudflared, and BlueBubbles"
+echo "Server needs a GUI session with Messages.app running. So for a reboot to"
+echo "bring everything back on its own, the mini has to log itself in:"
 echo "  System Settings > Users & Groups > Automatically log in as > (this user)"
+echo
+echo "A sleeping Mac mini is an offline server. Worth setting once:"
+echo "  sudo pmset -a sleep 0 disksleep 0 displaysleep 10 autorestart 1 womp 1"
+echo "  (autorestart: reboot after a power cut. womp: wake for network access.)"
