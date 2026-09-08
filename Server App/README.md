@@ -19,6 +19,25 @@ Smoke-test it (server running in another terminal):
 npm run harness                # registers phones, dedups, elects primary, dispatches a send
 ```
 
+## Deploying a change to the Mac mini
+
+The server runs under launchd (see `deploy/`). To pick up new code:
+
+```bash
+cd "Server App" && git pull && npm install && npm run redeploy
+```
+
+`redeploy` compiles and then restarts the running service in place with
+`launchctl kickstart -k`. The LaunchAgent stays loaded and `RunAtLoad` stays
+set, so the server still comes back on its own at login. Use `npm install`
+only when dependencies changed; `npm run redeploy` alone is enough otherwise.
+
+Watch it come up:
+
+```bash
+tail -f ~/Library/Logs/tnsms-server.log
+```
+
 ## Upgrading an existing single-user install
 
 Each person now gets their own database, and the old `data/sms.sqlite` is adopted
