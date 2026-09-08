@@ -49,7 +49,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		52A69BE43009853D0069E140 /* SMS TN.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "SMS TN.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		52A69BE43009853D0069E140 /* SMS TN.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = "SMS TN.app"; path = Bubbles.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5BAA00013009853D0069E140 /* Gmbridge.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = Gmbridge.xcframework; path = ../GmBridge/build/Gmbridge.xcframework; sourceTree = "<group>"; };
 		AAF1700000000000000000A1 /* OTPFill.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = OTPFill.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		AAF1700000000000000000A3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
