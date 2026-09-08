@@ -374,9 +374,73 @@ final class AppModel {
 
     func deleteMessage(_ messageID: String) {
         guard let db else { return }
+        selectedMessageIDs.remove(messageID)
         Task {
             try? await db.deleteMessages(ids: [messageID])   // optimistic local removal
             try? await server?.deleteMessages(ids: [messageID])
+        }
+    }
+
+    // MARK: - Message selection
+
+    /// Messages picked out with Cmd-click / Shift-click, for deleting several at
+    /// once. Empty whenever nothing is selected, which is also what the context
+    /// menu keys off to decide between the single and multiple wording.
+    private(set) var selectedMessageIDs: Set<String> = []
+
+    /// Where a Shift-click range starts: the last message clicked *without*
+    /// Shift. Without an anchor, Shift-click has no meaning — this is what makes
+    /// repeated Shift-clicks grow and shrink one range rather than accumulate
+    /// disjoint ones.
+    private var selectionAnchorID: String?
+
+    func isMessageSelected(_ id: String) -> Bool { selectedMessageIDs.contains(id) }
+
+    /// Cmd-click: add or remove one message, and move the anchor to it so a
+    /// following Shift-click ranges from here.
+    func toggleMessageSelection(_ id: String) {
+        if selectedMessageIDs.contains(id) {
+            selectedMessageIDs.remove(id)
+        } else {
+            selectedMessageIDs.insert(id)
+        }
+        selectionAnchorID = id
+    }
+
+    /// Shift-click: select everything between the anchor and [id] inclusive, in
+    /// the order the thread is displayed.
+    ///
+    /// Replaces the range rather than adding to it, so dragging the far end
+    /// around behaves like a list selection instead of leaving a trail. With no
+    /// anchor yet, behaves as a plain Cmd-click.
+    func extendMessageSelection(to id: String) {
+        guard let anchor = selectionAnchorID,
+              let from = threadMessages.firstIndex(where: { $0.id == anchor }),
+              let to = threadMessages.firstIndex(where: { $0.id == id })
+        else {
+            toggleMessageSelection(id)
+            return
+        }
+        let range = from <= to ? from...to : to...from
+        selectedMessageIDs = Set(threadMessages[range].map(\.id))
+    }
+
+    func clearMessageSelection() {
+        guard !selectedMessageIDs.isEmpty else { return }
+        selectedMessageIDs.removeAll()
+        selectionAnchorID = nil
+    }
+
+    /// Delete every selected message locally and on the server, which broadcasts
+    /// the removal to the phone.
+    func deleteSelectedMessages() {
+        guard let db, !selectedMessageIDs.isEmpty else { return }
+        let ids = Array(selectedMessageIDs)
+        selectedMessageIDs.removeAll()
+        selectionAnchorID = nil
+        Task {
+            try? await db.deleteMessages(ids: ids)
+            try? await server?.deleteMessages(ids: ids)
         }
     }
 
@@ -644,6 +708,10 @@ final class AppModel {
         threadObservationTask?.cancel()
         threadMessages = []
         threadMedia = [:]
+        // Selection belongs to the thread being looked at; carrying it across
+        // would leave ids selected that aren't on screen, and a later
+        // "Delete 3 Messages" would act on another conversation.
+        clearMessageSelection()
         guard let id, let db else { return }
 
         threadObservationTask = Task {

@@ -242,6 +242,27 @@ struct MessageBubble: View {
     // Cap bubble width like iMessage rather than letting it span the pane.
     private let maxBubbleWidth: CGFloat = 460
 
+    private var isSelected: Bool { model.isMessageSelected(message.id) }
+
+    /// Whether a right-click here should act on the whole selection.
+    ///
+    /// Only when this message is part of it: right-clicking an unselected
+    /// message while others are selected should act on the one under the cursor,
+    /// which is how list selections behave everywhere else.
+    private var actsOnSelection: Bool { isSelected && model.selectedMessageIDs.count > 1 }
+
+    private var deleteTitle: String {
+        actsOnSelection ? "Delete \(model.selectedMessageIDs.count) Messages" : "Delete Message"
+    }
+
+    private func performDelete() {
+        if actsOnSelection {
+            model.deleteSelectedMessages()
+        } else {
+            model.deleteMessage(message.id)
+        }
+    }
+
     /// Right-click actions for a message. Copy is only offered when there's text
     /// (selection + Cmd+C also works on the bubble); Delete removes it locally
     /// and pushes the removal to the server, which broadcasts it to Android.
@@ -252,8 +273,10 @@ struct MessageBubble: View {
                 NSPasteboard.general.setString(message.textContent, forType: .string)
             }
         }
-        Button("Delete Message", role: .destructive) {
-            model.deleteMessage(message.id)
+        Button(deleteTitle, role: .destructive) { performDelete() }
+        if !model.selectedMessageIDs.isEmpty {
+            Divider()
+            Button("Deselect All") { model.clearMessageSelection() }
         }
     }
 
@@ -272,7 +295,14 @@ struct MessageBubble: View {
                         text: message.textContent,
                         textColor: message.isFromMe ? .white : .labelColor,
                         maxWidth: maxBubbleWidth - 24,   // minus the bubble's h-padding
-                        onDelete: { model.deleteMessage(message.id) })
+                        deleteTitle: deleteTitle,
+                        onDelete: { performDelete() },
+                        // The text view owns clicks over the text, so the
+                        // modifier handling has to live in there too — otherwise
+                        // Cmd/Shift-click only works on the padding and media.
+                        onCommandClick: { model.toggleMessageSelection(message.id) },
+                        onShiftClick: { model.extendMessageSelection(to: message.id) },
+                        onPlainClick: { model.clearMessageSelection() })
                         .padding(.horizontal, 12)
                         .padding(.vertical, 7)
                         .background(bubbleBackground)
@@ -304,6 +334,19 @@ struct MessageBubble: View {
             if !message.isFromMe { Spacer(minLength: 80) }
         }
         .padding(.horizontal, 12)
+        .padding(.vertical, 2)
+        // Full-row tint, so a selected message reads clearly whichever side it's
+        // on and however tall its media is.
+        .background(isSelected ? Color.accentColor.opacity(0.22) : Color.clear)
+        // Modifier taps for the parts of the row the text view doesn't cover:
+        // media, the status line, and the padding either side.
+        .gesture(TapGesture().modifiers(.command).onEnded {
+            model.toggleMessageSelection(message.id)
+        })
+        .gesture(TapGesture().modifiers(.shift).onEnded {
+            model.extendMessageSelection(to: message.id)
+        })
+        .onTapGesture { model.clearMessageSelection() }
     }
 
     private var bubbleBackground: some ShapeStyle {
@@ -447,7 +490,11 @@ private struct SelectableTextView: NSViewRepresentable {
     let text: String
     let textColor: NSColor
     let maxWidth: CGFloat
+    let deleteTitle: String
     let onDelete: () -> Void
+    let onCommandClick: () -> Void
+    let onShiftClick: () -> Void
+    let onPlainClick: () -> Void
 
     private var font: NSFont { .systemFont(ofSize: NSFont.systemFontSize) }
 
@@ -465,7 +512,11 @@ private struct SelectableTextView: NSViewRepresentable {
     }
 
     func updateNSView(_ tv: MessageTextView, context: Context) {
+        tv.deleteTitle = deleteTitle
         tv.onDelete = onDelete
+        tv.onCommandClick = onCommandClick
+        tv.onShiftClick = onShiftClick
+        tv.onPlainClick = onPlainClick
         tv.textStorage?.setAttributedString(
             NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: textColor]))
     }
@@ -479,18 +530,48 @@ private struct SelectableTextView: NSViewRepresentable {
     }
 }
 
-/// NSTextView that appends "Delete Message" to the standard selection menu.
+/// NSTextView that appends a delete item to the standard selection menu, and
+/// hands Cmd/Shift-clicks up to the message list instead of treating them as
+/// text selection.
 final class MessageTextView: NSTextView {
+    var deleteTitle: String = "Delete Message"
     var onDelete: (() -> Void)?
+    var onCommandClick: (() -> Void)?
+    var onShiftClick: (() -> Void)?
+    var onPlainClick: (() -> Void)?
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let menu = super.menu(for: event) ?? NSMenu()
         menu.addItem(.separator())
-        let item = NSMenuItem(title: "Delete Message",
+        let item = NSMenuItem(title: deleteTitle,
                               action: #selector(performDeleteMessage), keyEquivalent: "")
         item.target = self
         menu.addItem(item)
         return menu
+    }
+
+    /// Message-level selection takes precedence over text selection while a
+    /// modifier is held.
+    ///
+    /// The bubble's text is an NSTextView so it can be drag-selected and copied,
+    /// which means it swallows every click over the text — the SwiftUI gestures
+    /// on the row only see the padding and media. Without this, Cmd-click and
+    /// Shift-click would work on some parts of a bubble and not others.
+    ///
+    /// The trade is that Shift-click no longer extends a *text* selection inside
+    /// a bubble. Cmd-click had no text behaviour to lose.
+    override func mouseDown(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if modifiers.contains(.command) {
+            onCommandClick?()
+            return
+        }
+        if modifiers.contains(.shift) {
+            onShiftClick?()
+            return
+        }
+        onPlainClick?()
+        super.mouseDown(with: event)
     }
 
     @objc private func performDeleteMessage() { onDelete?() }
