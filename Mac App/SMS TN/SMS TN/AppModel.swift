@@ -747,19 +747,35 @@ final class AppModel {
     /// guess ("check the number and that your phone is connected"), which named
     /// neither the real cause nor anything actionable.
     func startNewConversation(numbers: [String], message: String) async throws {
-        guard let bridge, let db else {
-            throw ComposeError.notConnected
-        }
+        guard let db else { throw ComposeError.notConnected }
+
         let countryCode = await callingCodeOfThisLine()
         let cleaned = numbers
             .map { dialable($0, countryCode: countryCode) }
             .filter { !$0.isEmpty }
-        guard !cleaned.isEmpty else { throw ComposeError.noRecipient }
+        guard let address = cleaned.first else { throw ComposeError.noRecipient }
+        guard cleaned.count == 1 else { throw ComposeError.groupUnsupported }
 
-        log.info("Starting conversation with \(cleaned.joined(separator: ","), privacy: .public)")
-        let pj = try await bridge.startConversation(numbers: cleaned)
-        try await db.upsertConversation(pj)
-        let record = ConversationRecord.from(pj)
+        // v3 sync-server path, which is the one this app actually runs on. The
+        // conversation id is the normalized address — the same key incoming
+        // messages arrive under (see applyServerMessages) — so creating a thread
+        // is a local insert and no server round-trip is needed.
+        //
+        // This used to call bridge.startConversation, the dormant v2 Google web
+        // protocol. That bridge is never initialised, so the guard at the top
+        // always failed and the composer could not start a conversation at all.
+        guard server != nil else { throw ComposeError.notConnected }
+
+        let convID = BBAddress.normalize(address)
+        log.info("Starting conversation \(convID, privacy: .public)")
+
+        let record: ConversationRecord
+        if let existing = conversations.first(where: { $0.id == convID }) {
+            record = existing
+        } else {
+            record = try await db.ensureSmsConversation(id: convID, address: address)
+        }
+
         selectConversation(record.id)
         let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
@@ -770,11 +786,13 @@ final class AppModel {
     enum ComposeError: LocalizedError {
         case notConnected
         case noRecipient
+        case groupUnsupported
 
         var errorDescription: String? {
             switch self {
-            case .notConnected: return "Not connected to your phone yet."
+            case .notConnected: return "Not signed in to your SMS server yet."
             case .noRecipient: return "Enter a phone number."
+            case .groupUnsupported: return "Group conversations can't be started from here yet."
             }
         }
     }

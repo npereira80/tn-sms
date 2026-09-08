@@ -164,7 +164,27 @@ nonisolated final class AppDatabase: Sendable {
         }
     }
 
-    /// This phone's own number, as Google Messages reported it on any
+    /// Create (or fetch) the SMS conversation for a normalized address, so a
+    /// thread can be started before any message exists in it.
+    ///
+    /// Mirrors the row `applyServerMessages` would build for an incoming message
+    /// from the same address, so the conversation the person composes into is the
+    /// same one the reply lands in.
+    func ensureSmsConversation(id: String, address: String) async throws -> ConversationRecord {
+        try await pool.write { db in
+            if let existing = try ConversationRecord.fetchOne(db, key: id) { return existing }
+            let record = ConversationRecord(
+                id: id, name: "", lastMessageTimestamp: Int64(Date().timeIntervalSince1970 * 1_000_000),
+                unread: false, isGroupChat: false, defaultOutgoingID: address, status: "ACTIVE",
+                readOnly: false, avatarHexColor: nil, sendMode: nil, type: "SMS",
+                pinned: false, snippet: nil, snippetSender: nil,
+                lastSyncedMessageTimestamp: nil, primaryNumber: address)
+            try record.insert(db)
+            return record
+        }
+    }
+
+    /// This phone's own number, as reported on any
     /// conversation, or nil if it never has.
     ///
     /// The only trustworthy source of the account's country: the Mac's locale
