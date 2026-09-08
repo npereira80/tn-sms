@@ -373,6 +373,33 @@ nonisolated final class AppDatabase: Sendable {
                     replyToMessageID: nil, pendingSend: false)
                 try record.save(db)
 
+                // Retire the optimistic row this message is the real version of.
+                //
+                // Sending inserts a local "tmp:" row so the bubble appears at
+                // once, and the same message then comes back in the delta under
+                // the server's id. Nothing reconciled the two — the send_status
+                // event only updated the pending row's status — so every sent
+                // message showed twice.
+                //
+                // Matched on conversation, direction and text rather than an id,
+                // because the local row was created before the server had one.
+                // Exactly one row is removed per ingested message, so sending
+                // the same words twice retires two pendings rather than both at
+                // once.
+                if isMe {
+                    try db.execute(
+                        sql: """
+                        DELETE FROM message WHERE id = (
+                            SELECT id FROM message
+                            WHERE pendingSend = 1 AND isFromMe = 1
+                              AND conversationID = ? AND textContent = ?
+                            ORDER BY timestamp ASC
+                            LIMIT 1
+                        )
+                        """,
+                        arguments: [convID, m.body])
+                }
+
                 // MMS media: one media row per attachment, keyed by content hash.
                 // decryptionKey is nil → MediaStore downloads it from GET /media.
                 for att in m.attachments ?? [] {
