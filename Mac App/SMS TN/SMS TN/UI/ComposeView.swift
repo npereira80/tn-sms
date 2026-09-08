@@ -80,7 +80,7 @@ struct ComposeView: View {
                 sending = false
                 // The underlying reason, not a guess at it. The previous message
                 // named two possible causes and showed neither, so a wrong
-                // number and a dead bridge looked identical.
+                // number and a broken connection looked identical.
                 errorText = error.localizedDescription
             }
         }

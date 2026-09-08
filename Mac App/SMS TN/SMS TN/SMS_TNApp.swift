@@ -3,7 +3,8 @@
 //  SMS TN
 //
 //  Created by Nelson Pereira on 16/07/2026.
-//  Native macOS client for Google Messages (spec v2).
+//  Native macOS client for the self-hosted SMS sync server, plus iMessage
+//  over BlueBubbles. (Began as a Google Messages client; that protocol is gone.)
 //
 
 import SwiftUI
@@ -55,11 +56,6 @@ struct SMS_TNApp: App {
 
                 Divider()
 
-                Button("Verify Full Sync") {
-                    model.runDeepVerify()
-                }
-                .disabled(model.phase != .ready || model.syncRunning)
-
                 Button("Reconnect") {
                     model.retryConnect()
                 }
@@ -67,13 +63,6 @@ struct SMS_TNApp: App {
 
                 Button("Reset & Re-sync from Server") {
                     model.resyncFromServer()
-                }
-                .disabled(model.phase != .ready)
-
-                Divider()
-
-                Button("Unpair Phone…") {
-                    Task { await model.unpair() }
                 }
                 .disabled(model.phase != .ready)
             }

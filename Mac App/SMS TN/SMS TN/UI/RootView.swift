@@ -19,9 +19,6 @@ struct RootView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            case .needsPairing:
-                PairingView()
-
             case .ready:
                 // Signed out means there's no account to sync, so show the
                 // sign-in rather than an empty inbox that never fills.

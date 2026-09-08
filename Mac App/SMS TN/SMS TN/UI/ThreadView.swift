@@ -177,6 +177,13 @@ struct ThreadView: View {
                     photoItem = nil
                 }
             }
+            .alert("Can't send attachments yet",
+                   isPresented: Binding(get: { model.attachmentSendUnsupported },
+                                        set: { model.attachmentSendUnsupported = $0 })) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("Sending photos and files from the Mac isn't built yet. Send it from your phone for now. Receiving them here works.")
+            }
 
             // Emoji picker (system Character Viewer inserts into the field).
             Button {
@@ -195,9 +202,6 @@ struct ThreadView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(RoundedRectangle(cornerRadius: 16).fill(.quaternary.opacity(0.5)))
-                .onChange(of: draft) { _, newValue in
-                    if !newValue.isEmpty { model.userIsTyping() }
-                }
                 // Enter sends; Shift+Enter inserts a newline.
                 .onKeyPress(.return, phases: .down) { press in
                     if press.modifiers.contains(.shift) {

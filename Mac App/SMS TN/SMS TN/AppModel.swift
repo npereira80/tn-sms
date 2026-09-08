@@ -2,7 +2,7 @@
 //  AppModel.swift
 //  SMS TN
 //
-//  Central coordinator: bridge lifecycle, event loop, sync, send path,
+//  Central coordinator: sync-server lifecycle, delta polling, send path,
 //  OTP routing, and observable state for the UI.
 //
 
@@ -18,7 +18,6 @@ import UserNotifications
 final class AppModel {
     enum Phase: Equatable {
         case launching
-        case needsPairing
         case ready
         case fatal(String)
     }
@@ -44,16 +43,18 @@ final class AppModel {
     // Observable UI state
     private(set) var phase: Phase = .launching
     private(set) var connectionState: ConnectionState = .disconnected
-    private(set) var pairingQR: String?
-    private(set) var pairingError: String?
-    private(set) var pairingEmoji: String?      // Gaia emoji to confirm on phone
-    private(set) var googlePairingInProgress = false
     private(set) var conversations: [ConversationRecord] = []
+    /// Threads showing "typing…". Nothing populates this since the Google
+    /// protocol went away; [setTypingIndicator] is where a typing signal from
+    /// the sync server or BlueBubbles would feed in.
     private(set) var typingConversationIDs: Set<String> = []
     var selectedConversationID: String?
     private(set) var threadMessages: [MessageRecord] = []
     private(set) var threadMedia: [String: [MediaRecord]] = [:]  // messageID -> media
     private(set) var syncRunning = false
+    /// Set when an attachment send is attempted, so the thread can say plainly
+    /// that it isn't supported yet rather than appearing to send nothing.
+    var attachmentSendUnsupported = false
 
     /// Whether this Mac is attached to a family member's account. Nothing syncs
     /// until it is: the server keeps a separate database per person.
@@ -63,12 +64,10 @@ final class AppModel {
 
     let otpCenter = OTPCenter()
 
-    private var bridge: BridgeClient?          // v2 (dormant): Google web protocol
     private var db: AppDatabase?
     private var mediaStore: MediaStore?
-    private var syncEngine: SyncEngine?
 
-    // v3: self-hosted SMS Sync server transport.
+    // Self-hosted SMS Sync server transport.
     private var server: ServerClient?
     private var serverTask: Task<Void, Never>?
     private var deltaPollTask: Task<Void, Never>?
@@ -79,8 +78,6 @@ final class AppModel {
     private(set) var bbConnected = false
     var showBBSettings = false   // drives the settings sheet (toolbar button + menu command)
 
-    private var eventTask: Task<Void, Never>?
-    private var qrRefreshTask: Task<Void, Never>?
     private var conversationObservationTask: Task<Void, Never>?
     private var threadObservationTask: Task<Void, Never>?
     private var typingClearTasks: [String: Task<Void, Never>] = [:]
@@ -95,8 +92,8 @@ final class AppModel {
             let db = try AppDatabase.open()
             self.db = db
 
-            // The offline copy is readable immediately; no pairing screen in
-            // v3 — the app is a client of the self-hosted server.
+            // The offline copy is readable immediately; there is no pairing
+            // screen — the app is a client of the self-hosted server.
             observeConversations()
             phase = .ready
 
@@ -138,9 +135,6 @@ final class AppModel {
         deltaPollTask?.cancel()
         bbTask?.cancel()
         server?.close()
-        eventTask?.cancel()
-        qrRefreshTask?.cancel()
-        await bridge?.disconnect()
     }
 
     // MARK: - Account
@@ -601,172 +595,6 @@ final class AppModel {
             UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
     }
 
-    // MARK: - Pairing
-
-    /// QR pairing (legacy; many current Google Messages versions no longer
-    /// expose the QR scanner — use Google-account pairing instead).
-    func beginPairing() {
-        guard let bridge else { return }
-        pairingError = nil
-        qrRefreshTask?.cancel()
-        qrRefreshTask = Task {
-            do {
-                try await bridge.configure(sessionJSON: nil)
-                let qr = try await bridge.startQRLogin()
-                pairingQR = qr
-                // QR expires after ~30s; refresh until paired.
-                while !Task.isCancelled {
-                    try await Task.sleep(for: .seconds(25))
-                    guard !Task.isCancelled else { return }
-                    pairingQR = try await bridge.refreshQR()
-                }
-            } catch {
-                if !Task.isCancelled {
-                    pairingError = "Could not start pairing: \(error.localizedDescription)"
-                }
-            }
-        }
-    }
-
-    func cancelQRPairing() {
-        qrRefreshTask?.cancel()
-        pairingQR = nil
-    }
-
-    /// Google-account (Gaia) pairing: pass cookies harvested from a
-    /// signed-in Google web session. The confirmation emoji arrives via
-    /// the `gaia_emoji` event.
-    func beginGoogleLogin(cookies: [String: String]) {
-        guard let bridge else { return }
-        qrRefreshTask?.cancel()
-        pairingError = nil
-        pairingEmoji = nil
-        pairingQR = nil
-        googlePairingInProgress = true
-        Task {
-            do {
-                try await bridge.startGoogleLogin(cookies: cookies)
-            } catch {
-                googlePairingInProgress = false
-                pairingError = "Could not start pairing: \(error.localizedDescription)"
-            }
-        }
-    }
-
-    // MARK: - Event loop
-
-    private func startEventLoop() {
-        guard let bridge else { return }
-        eventTask = Task {
-            for await event in bridge.events {
-                await handle(event)
-            }
-        }
-    }
-
-    /// Marks the client connected and runs a sync. Used after pairing and
-    /// after a successful reconnect, since this libgm build emits no
-    /// "ready" event to hang that off.
-    private func onConnected(readyConversations: [PJConversation]) {
-        connectionState = .connected
-        if phase != .ready { phase = .ready }
-        guard !syncRunning else { return }
-        syncRunning = true
-        let engine = syncEngine
-        Task {
-            await engine?.syncOnConnect(readyConversations: readyConversations)
-            await MainActor.run { self.syncRunning = false }
-        }
-    }
-
-    private func handle(_ event: GMEvent) async {
-        switch event {
-        case .pairSuccessful(let phoneID):
-            log.info("Paired with phone \(phoneID, privacy: .private)")
-            qrRefreshTask?.cancel()
-            pairingQR = nil
-            pairingEmoji = nil
-            googlePairingInProgress = false
-            await persistSession()
-            phase = .ready
-            // libgm reconnects itself after pairing; this version emits no
-            // "ready" event, so drive the connected+sync transition here.
-            onConnected(readyConversations: [])
-
-        case .gaiaEmoji(let emoji):
-            pairingEmoji = emoji
-
-        case .gaiaError(let message):
-            googlePairingInProgress = false
-            pairingEmoji = nil
-            pairingError = "Pairing failed: \(message)"
-
-        case .ready(_, let readyConversations):
-            // Not emitted by the current libgm; handled for forward-compat.
-            phase = .ready
-            await persistSession()
-            onConnected(readyConversations: readyConversations)
-
-        case .message(let message, let isOld):
-            await syncEngine?.handleRealtimeMessage(message)
-            if !isOld {
-                notifyIfNeeded(for: message)
-            }
-
-        case .conversation(let conversation):
-            await syncEngine?.handleRealtimeConversation(conversation)
-
-        case .typing(let conversationID, let started):
-            setTypingIndicator(conversationID: conversationID, active: started)
-
-        case .authTokenRefreshed:
-            await persistSession()
-
-        case .listenTemporaryError:
-            connectionState = .reconnecting
-
-        case .listenRecovered:
-            connectionState = .connected
-
-        case .phoneNotResponding:
-            connectionState = .phoneNotResponding
-
-        case .phoneRespondingAgain:
-            connectionState = .connected
-
-        case .listenFatal(let message):
-            connectionState = .disconnected
-            log.error("Listen fatal: \(message, privacy: .public)")
-
-        case .pairRevoked, .gaiaLoggedOut:
-            // The connection dropped its auth. Do NOT wipe the stored
-            // session or force re-pairing: per the product decision, only
-            // an explicit "Unpair phone" clears the login. Keep the
-            // offline copy readable and stay signed in; a later reconnect
-            // (or token refresh) can recover. The user can Unpair manually
-            // if they truly want to re-pair.
-            connectionState = .disconnected
-            log.warning("Received logout/revoke event; keeping stored session")
-
-        case .pingFailed(let message):
-            log.warning("Ping failed: \(message, privacy: .public)")
-
-        case .accountChange, .browserActive, .settingsUpdated, .userAlert,
-             .noDataReceived, .unknown:
-            break
-        }
-    }
-
-    private func persistSession() async {
-        guard let bridge else { return }
-        do {
-            let session = try await bridge.sessionJSON()
-            try KeychainStore.session.write(session)
-        } catch {
-            log.error("Failed to persist session: \(error.localizedDescription, privacy: .public)")
-        }
-    }
-
     // MARK: - Observation (DB -> UI)
 
     private func observeConversations() {
@@ -847,57 +675,24 @@ final class AppModel {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        // v3 server send path: enqueue on the server, which routes to the SIM
-        // phone. Optimistic local row shows immediately; status updates via the
-        // send_status WebSocket event. (Won't appear in Google Messages on the
-        // phone — accepted limitation.)
-        if let server, let db {
-            let localID = "tmp:\(UUID().uuidString)"
-            let pending = MessageRecord(
-                id: localID, conversationID: conversation.id, participantID: "me",
-                timestamp: Int64(Date().timeIntervalSince1970 * 1_000_000),
-                status: "OUTGOING_SENDING", textContent: trimmed, subject: nil, tmpID: nil,
-                isFromMe: true, reactionsJSON: nil, replyToMessageID: nil, pendingSend: true)
-            do {
-                try await db.insertPendingMessage(pending)
-                let to = conversation.primaryNumber ?? conversation.id
-                let requestId = try await server.postSend(to: to, body: trimmed)
-                if !requestId.isEmpty { pendingSendRequests[requestId] = localID }
-            } catch {
-                log.error("Server send failed: \(error.localizedDescription, privacy: .public)")
-                try? await db.markPendingFailed(localID: localID)
-            }
-            return
-        }
-
-        // v2 bridge send path (dormant).
-        guard let bridge, let db else { return }
-
+        // Enqueue on the server, which routes to the SIM phone. The optimistic
+        // local row shows immediately; status updates arrive on the send_status
+        // WebSocket event. (Won't appear in the phone's own SMS app when Bubbles
+        // is in observer mode — accepted limitation, see ADR-014.)
+        guard let server, let db else { return }
         let localID = "tmp:\(UUID().uuidString)"
         let pending = MessageRecord(
-            id: localID,
-            conversationID: conversation.id,
-            participantID: conversation.defaultOutgoingID,
+            id: localID, conversationID: conversation.id, participantID: "me",
             timestamp: Int64(Date().timeIntervalSince1970 * 1_000_000),
-            status: "OUTGOING_SENDING",
-            textContent: trimmed,
-            subject: nil,
-            tmpID: nil,
-            isFromMe: true,
-            reactionsJSON: nil,
-            replyToMessageID: nil,
-            pendingSend: true
-        )
+            status: "OUTGOING_SENDING", textContent: trimmed, subject: nil, tmpID: nil,
+            isFromMe: true, reactionsJSON: nil, replyToMessageID: nil, pendingSend: true)
         do {
             try await db.insertPendingMessage(pending)
-            let result = try await bridge.sendText(
-                conversationID: conversation.id,
-                participantID: conversation.defaultOutgoingID,
-                text: trimmed,
-                forceRCS: conversation.type == "RCS")
-            try await db.updatePendingTmpID(localID: localID, tmpID: result.tmpID)
+            let to = conversation.primaryNumber ?? conversation.id
+            let requestId = try await server.postSend(to: to, body: trimmed)
+            if !requestId.isEmpty { pendingSendRequests[requestId] = localID }
         } catch {
-            log.error("Send failed: \(error.localizedDescription, privacy: .public)")
+            log.error("Server send failed: \(error.localizedDescription, privacy: .public)")
             try? await db.markPendingFailed(localID: localID)
         }
     }
@@ -919,14 +714,9 @@ final class AppModel {
         guard let address = cleaned.first else { throw ComposeError.noRecipient }
         guard cleaned.count == 1 else { throw ComposeError.groupUnsupported }
 
-        // v3 sync-server path, which is the one this app actually runs on. The
-        // conversation id is the normalized address — the same key incoming
+        // The conversation id is the normalized address — the same key incoming
         // messages arrive under (see applyServerMessages) — so creating a thread
-        // is a local insert and no server round-trip is needed.
-        //
-        // This used to call bridge.startConversation, the dormant v2 Google web
-        // protocol. That bridge is never initialised, so the guard at the top
-        // always failed and the composer could not start a conversation at all.
+        // is a local insert and needs no server round-trip.
         guard server != nil else { throw ComposeError.notConnected }
 
         // Reuse the contact's existing thread rather than keying a new one off
@@ -982,9 +772,9 @@ final class AppModel {
     /// otherwise exactly as typed.
     ///
     /// A national number like "928392735" has no meaning without a country, and
-    /// the bridge passes whatever it's given straight through to Google
-    /// Messages. Left alone when [countryCode] is nil, because sending it
-    /// unchanged is recoverable while prefixing the wrong country is not.
+    /// the server passes whatever it's given to the phone to dial. Left alone
+    /// when [countryCode] is nil, because sending it unchanged is recoverable
+    /// while prefixing the wrong country is not.
     private func dialable(_ raw: String, countryCode: String?) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespaces)
         if trimmed.isEmpty || trimmed.hasPrefix("+") { return trimmed }
@@ -997,8 +787,8 @@ final class AppModel {
         return "+\(countryCode)\(digits)"
     }
 
-    /// The calling code of the SIM this Mac is paired to, from the phone's own
-    /// number as Google Messages reported it. Nil if it never did.
+    /// The calling code of the line this Mac syncs with, taken from the phone's
+    /// own number as the sync server reported it. Nil when it never did.
     private func callingCodeOfThisLine() async -> String? {
         guard let db else { return nil }
         // try? on a String?-returning call flattens to String?, so one unwrap.
@@ -1041,39 +831,17 @@ final class AppModel {
     }
 
     /// Sends raw attachment bytes (e.g. from the Photos picker).
+    ///
+    /// Not implemented on the sync server yet. The only implementation this
+    /// ever had uploaded through the Google bridge, so it has been dead since
+    /// the app moved off that protocol — it silently returned. It now says so.
+    ///
+    /// The pieces exist: POST /media takes the blob and a send request carries
+    /// `attachments_json` for the phone to send as MMS. What's missing is
+    /// wiring those two together here.
     func sendAttachmentData(_ data: Data, fileName: String, mimeType: String, caption: String) async {
-        guard let bridge, let db,
-              let conversationID = selectedConversationID,
-              let conversation = conversations.first(where: { $0.id == conversationID }) else { return }
-        let localID = "tmp:\(UUID().uuidString)"
-        let pending = MessageRecord(
-            id: localID,
-            conversationID: conversationID,
-            participantID: conversation.defaultOutgoingID,
-            timestamp: Int64(Date().timeIntervalSince1970 * 1_000_000),
-            status: "OUTGOING_SENDING",
-            textContent: caption.isEmpty ? "📎 \(fileName)" : caption,
-            subject: nil,
-            tmpID: nil,
-            isFromMe: true,
-            reactionsJSON: nil,
-            replyToMessageID: nil,
-            pendingSend: true
-        )
-        do {
-            try await db.insertPendingMessage(pending)
-            let mediaJSON = try await bridge.uploadMedia(data: data, fileName: fileName, mimeType: mimeType)
-            let result = try await bridge.sendMedia(
-                conversationID: conversationID,
-                participantID: conversation.defaultOutgoingID,
-                mediaContentJSON: mediaJSON,
-                caption: caption,
-                forceRCS: conversation.type == "RCS")
-            try await db.updatePendingTmpID(localID: localID, tmpID: result.tmpID)
-        } catch {
-            log.error("Attachment send failed: \(error.localizedDescription, privacy: .public)")
-            try? await db.markPendingFailed(localID: localID)
-        }
+        log.warning("Attachment send from the Mac is not implemented (\(fileName, privacy: .public), \(data.count, privacy: .public) bytes)")
+        attachmentSendUnsupported = true
     }
 
     // MARK: - Conversation actions
@@ -1085,76 +853,28 @@ final class AppModel {
             try dbConn.execute(sql: "UPDATE conversation SET unread = 0 WHERE id = ?",
                                arguments: [conversationID])
         }
-        // v3: push the read-state to the SMS server so the Android phone and any
-        // other client reflect it (the conversation id is the normalized address).
+        // Push the read-state to the SMS server so the Android phone and any
+        // other client reflect it. The server canonicalises the address, so our
+        // own conversation id is a valid key whatever format it is stored in.
         try? await server?.markRead(address: conversationID, unread: false)
-        // v2 bridge read receipt (dormant).
-        if let bridge, connectionState == .connected,
-           let latest = try? await db.latestMessage(conversationID: conversationID),
-           !latest.pendingSend {
-            try? await bridge.markRead(conversationID: conversationID, messageID: latest.id)
-        }
-    }
-
-    private var lastTypingPing = Date.distantPast
-    func userIsTyping() {
-        guard let bridge, let conversationID = selectedConversationID,
-              connectionState == .connected else { return }
-        let now = Date()
-        guard now.timeIntervalSince(lastTypingPing) > 4 else { return }
-        lastTypingPing = now
-        Task { try? await bridge.setTyping(conversationID: conversationID) }
     }
 
     func retryConnect() {
-        // v3: restart the server sync (history pull + realtime stream).
-        if let server, let db {
-            serverTask?.cancel()
-            server.close()
-            connectionState = .connecting
-            let fresh = ServerClient()
-            self.server = fresh
-            serverTask = Task { await runServerSync(server: fresh, db: db) }
-            return
-        }
-        // v2 bridge (dormant).
-        guard let bridge else { return }
+        guard let server, let db else { return }
+        serverTask?.cancel()
+        server.close()
         connectionState = .connecting
-        Task {
-            do {
-                try await bridge.connect()
-                onConnected(readyConversations: [])
-            } catch {
-                connectionState = .disconnected
-            }
-        }
-    }
-
-    func runDeepVerify() {
-        guard let syncEngine else { return }
-        syncRunning = true
-        Task {
-            await syncEngine.deepVerify()
-            await MainActor.run { self.syncRunning = false }
-        }
-    }
-
-    func unpair() async {
-        guard let bridge else { return }
-        try? await bridge.unpair()
-        await bridge.disconnect()
-        try? KeychainStore.session.delete()
-        try? await db?.wipe()
-        await mediaStore?.garbageCollect()
-        conversations = []
-        threadMessages = []
-        selectedConversationID = nil
-        connectionState = .disconnected
-        phase = .needsPairing
+        let fresh = ServerClient()
+        self.server = fresh
+        serverTask = Task { await runServerSync(server: fresh, db: db) }
     }
 
     // MARK: - Typing indicator + notifications
 
+    /// Where a typing signal would arrive from. Unused since the Google
+    /// protocol was removed: the sync server has no typing event, and the
+    /// BlueBubbles client is receive-only. Kept because the thread and the
+    /// conversation list already render [typingConversationIDs].
     private func setTypingIndicator(conversationID: String, active: Bool) {
         typingClearTasks[conversationID]?.cancel()
         if active {
@@ -1174,41 +894,4 @@ final class AppModel {
             .requestAuthorization(options: [.alert, .sound, .badge])
     }
 
-    private func notifyIfNeeded(for message: PJMessage) {
-        let fromMe = message.senderParticipant?.isMe ?? false
-        guard !fromMe else { return }
-        let text = message.textContent
-        let sender = message.senderParticipant?.fullName
-            ?? message.senderParticipant?.formattedNumber
-            ?? conversations.first(where: { $0.id == message.conversationID })?.name
-            ?? "New message"
-
-        // OTP detection runs on every incoming text (spec §3.3).
-        if !text.isEmpty {
-            otpCenter.handleIncoming(text: text, sender: sender)
-        }
-
-        let appActive = NSApp.isActive
-        let viewingThread = selectedConversationID == message.conversationID
-
-        // Bounce the dock icon once when a message arrives and the app
-        // isn't frontmost.
-        if !appActive {
-            NSApp.requestUserAttention(.informationalRequest)
-        }
-
-        guard !(appActive && viewingThread) else { return }
-        guard OTPDetector.detect(in: text) == nil else { return } // OTP notification already sent
-
-        let content = UNMutableNotificationContent()
-        content.title = sender
-        content.body = text.isEmpty ? "Attachment" : String(text.prefix(140))
-        content.sound = .default
-        if let conversationID = message.conversationID {
-            content.userInfo = ["conversationID": conversationID]
-        }
-        let request = UNNotificationRequest(identifier: UUID().uuidString,
-                                            content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request)
-    }
 }

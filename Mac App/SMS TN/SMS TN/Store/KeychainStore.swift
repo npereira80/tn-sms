@@ -2,8 +2,12 @@
 //  KeychainStore.swift
 //  SMS TN
 //
-//  Stores the pairing session (auth tokens + crypto keys) in the macOS
-//  Keychain. Never written to plaintext files or UserDefaults (spec §3.4).
+//  Secrets in the macOS Keychain: the sync server's bearer token and the
+//  BlueBubbles password. Never written to plaintext files or UserDefaults
+//  (spec §3.4).
+//
+//  Lived under GMessages/ while the app spoke the Google web protocol, which
+//  was misleading: nothing here was ever specific to it.
 //
 
 import Foundation
@@ -21,8 +25,7 @@ nonisolated enum KeychainError: LocalizedError {
 }
 
 nonisolated struct KeychainStore: Sendable {
-    static let session = KeychainStore(service: "macDroid.SMS-TN", account: "gmessages-session")
-    /// v3: bearer token issued by the self-hosted SMS Sync server.
+    /// Bearer token issued by the self-hosted SMS Sync server.
     static let serverToken = KeychainStore(service: "macDroid.SMS-TN", account: "server-token")
     /// BlueBubbles server password (Mac unified inbox / iMessage).
     static let bbPassword = KeychainStore(service: "macDroid.SMS-TN", account: "bb-password")
