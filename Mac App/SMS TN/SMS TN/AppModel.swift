@@ -766,13 +766,31 @@ final class AppModel {
         // always failed and the composer could not start a conversation at all.
         guard server != nil else { throw ComposeError.notConnected }
 
-        let convID = BBAddress.normalize(address)
-        log.info("Starting conversation \(convID, privacy: .public)")
-
+        // Reuse the contact's existing thread rather than keying a new one off
+        // the address as typed.
+        //
+        // A conversation id is whatever form the address arrived in, so the same
+        // person is "916309003" when the carrier delivers a national number and
+        // "+351916309003" once this composer converts to E.164. Matching on the
+        // id alone therefore created a second thread for someone already in the
+        // list. Compared on significant digits instead, which is how contacts
+        // are already matched to numbers.
+        // An alphanumeric sender ("Google", "CGD") has no digits and normalizes
+        // to "", so an empty key must never be used for matching — it would
+        // collide with every other letters-only sender.
+        let key = ContactsService.normalize(address)
         let record: ConversationRecord
-        if let existing = conversations.first(where: { $0.id == convID }) {
+        if let existing = conversations.first(where: {
+            let candidate = $0.primaryNumber ?? $0.id
+            return key.isEmpty
+                ? candidate == address
+                : ContactsService.normalize(candidate) == key
+        }) {
             record = existing
+            log.info("Composing into existing conversation \(record.id, privacy: .public)")
         } else {
+            let convID = BBAddress.normalize(address)
+            log.info("Starting conversation \(convID, privacy: .public)")
             record = try await db.ensureSmsConversation(id: convID, address: address)
         }
 
