@@ -65,6 +65,37 @@ export interface UserContext {
   userId: string;
   db: Database.Database;
   mediaDir: string;
+  /// Country calling code of this account's own line, from the number verified
+  /// at sign-up. Used to resolve a national address to one canonical
+  /// international form — see canonicalAddress. Null when unknown, in which
+  /// case addresses are left as received.
+  defaultCc: string | null;
+}
+
+/**
+ * The calling code at the front of an E.164 number.
+ *
+ * Longest first, so "351" isn't read as "35". Deliberately not exhaustive: an
+ * unrecognised prefix yields null and addresses are then left alone, which is
+ * the safe outcome.
+ */
+const CALLING_CODES = new Set([
+  "1", "7", "20", "27", "30", "31", "32", "33", "34", "36", "39", "40", "41", "43", "44", "45",
+  "46", "47", "48", "49", "51", "52", "53", "54", "55", "56", "57", "58", "60", "61", "62", "63",
+  "64", "65", "66", "81", "82", "84", "86", "90", "91", "92", "93", "94", "95", "98",
+  "351", "352", "353", "354", "355", "356", "357", "358", "359", "370", "371", "372", "373",
+  "374", "375", "376", "377", "378", "380", "381", "382", "383", "385", "386", "387", "389",
+  "420", "421", "423", "852", "853", "855", "856", "880", "886", "971", "972", "974", "977",
+]);
+
+export function callingCodeOf(phone: string | null | undefined): string | null {
+  const digits = (phone ?? "").replace(/[^\d]/g, "");
+  if (digits.length < 9) return null;
+  for (const len of [3, 2, 1]) {
+    const candidate = digits.slice(0, len);
+    if (CALLING_CODES.has(candidate)) return candidate;
+  }
+  return null;
 }
 
 const contexts = new Map<string, UserContext>();
@@ -83,7 +114,12 @@ export function userContext(userId: string): UserContext {
   const mediaDir = path.join(dir, "media");
   fs.mkdirSync(mediaDir, { recursive: true });
 
-  const ctx: UserContext = { userId, db: openUserDb(path.join(dir, "sms.sqlite")), mediaDir };
+  const ctx: UserContext = {
+    userId,
+    db: openUserDb(path.join(dir, "sms.sqlite")),
+    mediaDir,
+    defaultCc: callingCodeOf(userById(userId)?.phone),
+  };
   contexts.set(userId, ctx);
   return ctx;
 }

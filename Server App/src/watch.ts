@@ -1,4 +1,5 @@
 import type { UserContext } from "./users.js";
+import { canonicalAddress } from "./util.js";
 
 /**
  * Compact read API for very constrained watch clients (Garmin Connect IQ).
@@ -67,6 +68,9 @@ export function watchChats(ctx: UserContext, limitRaw?: unknown) {
 export function watchMessages(ctx: UserContext, conversationId: string, limitRaw?: unknown) {
   const limit = clamp(limitRaw, 20, MAX_MESSAGES);
   if (!conversationId) return { m: [] };
+  // The watch caches chat ids, so one taken before the addresses were
+  // canonicalised would otherwise open an empty thread.
+  const convId = canonicalAddress(conversationId, ctx.defaultCc);
 
   const rows = ctx.db
     .prepare(
@@ -77,7 +81,7 @@ export function watchMessages(ctx: UserContext, conversationId: string, limitRaw
         ORDER BY m.ts DESC
         LIMIT ?`,
     )
-    .all(conversationId, limit) as {
+    .all(convId, limit) as {
       id: string; direction: string; body: string; ts: number; atts: number;
     }[];
 

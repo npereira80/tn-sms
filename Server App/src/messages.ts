@@ -1,6 +1,6 @@
 import type { UserContext } from "./users.js";
 import { hub } from "./hub.js";
-import { contentHash, normalizeAddress, now } from "./util.js";
+import { canonicalAddress, contentHash, now } from "./util.js";
 import { nanoid } from "nanoid";
 
 export interface AttachmentInput {
@@ -81,7 +81,7 @@ export function ingest(ctx: UserContext, sourceDeviceId: string, items: Incoming
   const accepts: any[] = [];
   const tx = ctx.db.transaction((batch: IncomingMessage[]) => {
     for (const m of batch) {
-      const hash = contentHash(m);
+      const hash = contentHash({ ...m, defaultCc: ctx.defaultCc });
       if (findByHash.get(hash)) { duplicate++; continue; }
       // Deletion is durable: if this content was deleted on any device, never
       // resurrect it — even if the source phone's provider still holds the SMS
@@ -89,7 +89,8 @@ export function ingest(ctx: UserContext, sourceDeviceId: string, items: Incoming
       // cleared here, which brought deleted messages back.)
       if (findTomb.get(hash)) { suppressed++; continue; }
 
-      const convId = normalizeAddress(m.address);
+      // One key per number, whatever format it arrived in.
+      const convId = canonicalAddress(m.address, ctx.defaultCc);
       upsertConv.run({
         id: convId,
         address: m.address,
@@ -171,9 +172,13 @@ export function delta(ctx: UserContext, since: number) {
  * positive list to converge against.
  */
 export function conversationMessageKeys(ctx: UserContext, conversationId: string) {
+  // Canonicalised, so a client that still holds the address in its own format
+  // ("916309003" where the server now stores "+351916309003") still finds the
+  // thread. Clients cache conversation ids locally and cannot be expected to
+  // re-key them all, so the translation belongs here.
   const rows = ctx.db
     .prepare(`SELECT id, content_hash FROM message WHERE conversation_id = ?`)
-    .all(conversationId) as { id: string; content_hash: string }[];
+    .all(canonicalAddress(conversationId, ctx.defaultCc)) as { id: string; content_hash: string }[];
   return {
     ids: rows.map((r) => r.id),
     hashes: rows.map((r) => r.content_hash).filter(Boolean),
@@ -191,7 +196,10 @@ export function setStatus(ctx: UserContext, messageId: string, status: string) {
  * §3.2 mirror semantics) and a delete is broadcast to clients.
  */
 export function reconcile(ctx: UserContext, items: IncomingMessage[]) {
-  const alive = new Set(items.map(contentHash));
+  // The account's country code has to go in here too. Without it the alive-set
+  // is hashed under a different canonicalisation than the stored rows, so every
+  // message looks absent and this mirror would delete the whole history.
+  const alive = new Set(items.map((m) => contentHash({ ...m, defaultCc: ctx.defaultCc })));
   const rows = ctx.db
     .prepare(`SELECT id, content_hash, conversation_id FROM message`)
     .all() as { id: string; content_hash: string; conversation_id: string }[];
@@ -244,18 +252,22 @@ export function deleteItems(ctx: UserContext, input: {
   let deleted = 0;
   const tx = ctx.db.transaction(() => {
     if (input.conversationId) {
+      // Canonicalised: a client may still hold this thread under the address
+      // format it first saw, and an exact match would then delete nothing while
+      // reporting success. Broadcast the canonical id for the same reason.
+      const convId = canonicalAddress(input.conversationId, ctx.defaultCc);
       // Tombstone every message in the thread by content_hash so polling
       // clients remove their copies, then drop the messages + conversation.
       const rows = ctx.db
         .prepare(`SELECT id, content_hash FROM message WHERE conversation_id = ?`)
-        .all(input.conversationId) as { id: string; content_hash: string }[];
+        .all(convId) as { id: string; content_hash: string }[];
       for (const r of rows) {
-        tombstoneStmt(ctx).run({ content_hash: r.content_hash, conversation_id: input.conversationId, message_id: r.id, ts: now() });
+        tombstoneStmt(ctx).run({ content_hash: r.content_hash, conversation_id: convId, message_id: r.id, ts: now() });
       }
-      ctx.db.prepare(`DELETE FROM message WHERE conversation_id = ?`).run(input.conversationId);
-      ctx.db.prepare(`DELETE FROM conversation WHERE id = ?`).run(input.conversationId);
+      ctx.db.prepare(`DELETE FROM message WHERE conversation_id = ?`).run(convId);
+      ctx.db.prepare(`DELETE FROM conversation WHERE id = ?`).run(convId);
       deleted += rows.length;
-      hub.broadcast(ctx.userId, { type: "conversation_deleted", conversationId: input.conversationId }, actingDeviceId);
+      hub.broadcast(ctx.userId, { type: "conversation_deleted", conversationId: convId }, actingDeviceId);
     }
     if (input.messageIds?.length) {
       const sel = ctx.db.prepare(`SELECT conversation_id, content_hash FROM message WHERE id = ?`);
@@ -322,7 +334,7 @@ export function applyReadUpdates(ctx: UserContext, updates: { address: string; u
   );
   const tx = ctx.db.transaction(() => {
     for (const u of updates) {
-      const id = normalizeAddress(u.address);
+      const id = canonicalAddress(u.address, ctx.defaultCc);
       if (!id) continue;
       upd.run({ id, unread: u.unread ? 1 : 0 });
       hub.broadcast(ctx.userId, { type: "conversation_read", conversationId: id, unread: u.unread }, actingDeviceId);

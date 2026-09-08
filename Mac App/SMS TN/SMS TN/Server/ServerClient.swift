@@ -147,8 +147,12 @@ nonisolated final class ServerClient: @unchecked Sendable {
     // MARK: - Read state (Mac -> server + clients)
 
     /// Report a conversation's read-state to the server so the phone and other
-    /// clients reflect it. The server keys conversations by normalized address;
-    /// passing the conversation id (already the normalized address) is fine.
+    /// clients reflect it.
+    ///
+    /// Passing our own conversation id is fine even when it predates the
+    /// server's canonical addressing ("916309003" rather than "+351916309003"):
+    /// the server canonicalises whatever arrives before matching, so a locally
+    /// cached id in the old format still resolves to the right thread.
     func markRead(address: String, unread: Bool = false) async throws {
         guard let token else { throw ServerError.notRegistered }
         var req = URLRequest(url: base.appending(path: "read"))

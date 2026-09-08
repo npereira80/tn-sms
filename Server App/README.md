@@ -46,6 +46,35 @@ DATA_DIR=/tmp/tn-test REGISTRATION_SECRET=test PORT=8799 npm start &
 ./scripts/smoke-multiuser.sh
 ```
 
+## Canonical addresses (one-time re-key)
+
+A number is now keyed in one form only: full international, digits and a leading
+`+`. Before this, the conversation id and the content hash were built from the
+address exactly as it arrived, so texting `916309003` and getting the reply back
+as `+351916309003` produced two threads and two hashes for the same message. The
+hash is how devices agree on identity, so a delete on the Mac could not be
+matched on the phone.
+
+National numbers are resolved with the calling code of the account's own
+verified number. Short codes, alphanumeric senders (`MIN.SAUDE`) and emails are
+never given one.
+
+Existing rows need re-keying once. Stop the server first, and back up the data
+directory: the script rewrites the message table and removes rows that turn out
+to be the same message stored twice.
+
+```bash
+npm stop 2>/dev/null; launchctl kill TERM "gui/$(id -u)/com.tnsms.server"
+cp -R data "data.backup-$(date +%F)"
+npm run canonicalise              # dry run: reports what would change
+npm run canonicalise -- --apply
+launchctl kickstart -k "gui/$(id -u)/com.tnsms.server"
+```
+
+Update the Mac app and the Android app before letting them sync afterwards. A
+client on an older build computes the previous hash, which is the same mismatch
+in reverse.
+
 ## API
 
 | Method | Path | Auth | Purpose |
