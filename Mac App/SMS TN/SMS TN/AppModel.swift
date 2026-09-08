@@ -407,7 +407,25 @@ final class AppModel {
         selectedMessageIDs.remove(messageID)
         Task {
             try? await db.deleteMessages(ids: [messageID])   // optimistic local removal
-            try? await server?.deleteMessages(ids: [messageID])
+            await pushDeletion(ids: [messageID])
+        }
+    }
+
+    /// Tell the server about a local deletion, and say so when it doesn't land.
+    ///
+    /// This used to be `try?`. The local delete is optimistic and always
+    /// succeeds, so a failure here — an expired token, the server unreachable —
+    /// left the message gone on this Mac and still present everywhere else, with
+    /// nothing recorded to explain it.
+    private func pushDeletion(ids: [String]) async {
+        guard let server else {
+            log.error("Delete not propagated: no server client (\(ids.count, privacy: .public) message(s))")
+            return
+        }
+        do {
+            try await server.deleteMessages(ids: ids)
+        } catch {
+            log.error("Delete not propagated: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -470,7 +488,7 @@ final class AppModel {
         selectionAnchorID = nil
         Task {
             try? await db.deleteMessages(ids: ids)
-            try? await server?.deleteMessages(ids: ids)
+            await pushDeletion(ids: ids)
         }
     }
 

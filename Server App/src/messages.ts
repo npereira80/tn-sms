@@ -263,7 +263,16 @@ export function deleteItems(ctx: UserContext, input: {
       for (const id of input.messageIds) {
         const row = sel.get(id) as { conversation_id: string; content_hash: string } | undefined;
         del.run(id);
-        if (row) tombstoneStmt(ctx).run({ content_hash: row.content_hash, conversation_id: row.conversation_id, message_id: id, ts: now() });
+        if (row) {
+          tombstoneStmt(ctx).run({ content_hash: row.content_hash, conversation_id: row.conversation_id, message_id: id, ts: now() });
+        } else {
+          // No row means no content hash, and the Android client only acts on
+          // the hash — it doesn't store our nanoid ids. So the broadcast below
+          // goes out and is silently ignored, and the message stays on the
+          // phone. Worth saying out loud, because the symptom is a delete that
+          // works on one client and nowhere else.
+          console.warn(`delete: no message ${id} for user ${ctx.userId} — peers cannot match it`);
+        }
         deleted++;
         hub.broadcast(ctx.userId, {
           type: "message_deleted",
