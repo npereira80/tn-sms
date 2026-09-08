@@ -802,7 +802,8 @@ final class AppModel {
     /// number as Google Messages reported it. Nil if it never did.
     private func callingCodeOfThisLine() async -> String? {
         guard let db else { return nil }
-        guard let mine = try? await db.myPhoneNumber(), let mine else { return nil }
+        // try? on a String?-returning call flattens to String?, so one unwrap.
+        guard let mine = try? await db.myPhoneNumber() else { return nil }
         let digits = mine.hasPrefix("+")
             ? String(mine.dropFirst()).filter { $0.isNumber }
             : mine.filter { $0.isNumber }
