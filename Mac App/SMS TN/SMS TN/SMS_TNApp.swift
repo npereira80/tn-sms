@@ -86,7 +86,7 @@ nonisolated final class NotificationDelegate: NSObject, UNUserNotificationCenter
         if let conversationID = userInfo["conversationID"] as? String {
             await MainActor.run {
                 NSApp.activate(ignoringOtherApps: true)
-                model?.selectConversation(conversationID)
+                model?.setConversationSelection([conversationID])
             }
         }
     }

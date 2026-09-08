@@ -262,6 +262,9 @@ final class AppModel {
                 try? await db.deleteMessages(ids: [id])
             case .conversationDeleted(let conversationId):
                 if selectedConversationID == conversationId { selectConversation(nil) }
+                // Otherwise a "Delete 3 Conversations" could still name a row
+                // that another device already removed.
+                selectedConversationIDs.remove(conversationId)
                 try? await db.deleteConversations(ids: [conversationId])
             }
         }
@@ -447,9 +450,56 @@ final class AppModel {
     func deleteThread(_ conversationID: String) {
         guard let db else { return }
         if selectedConversationID == conversationID { selectConversation(nil) }
+        selectedConversationIDs.remove(conversationID)
         Task {
             try? await db.deleteConversations(ids: [conversationID])   // cascades messages
             try? await server?.deleteConversation(id: conversationID)
+        }
+    }
+
+    // MARK: - Conversation selection
+
+    /// Rows highlighted in the sidebar. Driven by the List's own multi-selection,
+    /// so Cmd-click, Shift-click, arrow keys and Select All all come from AppKit
+    /// rather than being reimplemented.
+    var selectedConversationIDs: Set<String> = []
+
+    /// Reconcile the open thread with the sidebar selection.
+    ///
+    /// One row selected opens it. None closes the pane. Several leaves whatever
+    /// is open alone as long as it's still in the set, so the thread doesn't
+    /// blank out while a selection is being built — the same as Mail.
+    func setConversationSelection(_ ids: Set<String>) {
+        selectedConversationIDs = ids
+        switch ids.count {
+        case 1:
+            if let only = ids.first, only != selectedConversationID {
+                selectConversation(only)
+            }
+        case 0:
+            if selectedConversationID != nil { selectConversation(nil) }
+        default:
+            if let open = selectedConversationID, !ids.contains(open) {
+                selectConversation(nil)
+            }
+        }
+    }
+
+    func isConversationSelected(_ id: String) -> Bool { selectedConversationIDs.contains(id) }
+
+    /// Delete every selected conversation locally and on the server, which
+    /// broadcasts the removal to the phone. Local delete cascades the messages.
+    func deleteSelectedConversations() {
+        guard let db, !selectedConversationIDs.isEmpty else { return }
+        let ids = Array(selectedConversationIDs)
+        if let open = selectedConversationID, ids.contains(open) { selectConversation(nil) }
+        selectedConversationIDs.removeAll()
+        Task {
+            try? await db.deleteConversations(ids: ids)
+            // The delete endpoint takes one conversation at a time.
+            for id in ids {
+                try? await server?.deleteConversation(id: id)
+            }
         }
     }
 
@@ -862,7 +912,7 @@ final class AppModel {
             record = try await db.ensureSmsConversation(id: convID, address: address)
         }
 
-        selectConversation(record.id)
+        setConversationSelection([record.id])
         let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
             await sendText(trimmed, to: record)

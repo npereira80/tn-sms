@@ -31,15 +31,19 @@ struct ConversationListView: View {
     }
 
     var body: some View {
+        // A Set binding is what turns on the List's own multi-selection, so
+        // Cmd-click, Shift-click, arrow keys and Select All behave as they do
+        // anywhere else on macOS. The open thread is then derived from the
+        // selection rather than being the selection.
         List(selection: Binding(
-            get: { model.selectedConversationID },
-            set: { model.selectConversation($0) }
+            get: { model.selectedConversationIDs },
+            set: { model.setConversationSelection($0) }
         )) {
             if !pinned.isEmpty && searchText.isEmpty {
                 PinnedRow(pinned: pinned,
                           resolve: contactMatch,
                           displayName: displayName,
-                          onSelect: { model.selectConversation($0) })
+                          onSelect: { model.setConversationSelection([$0]) })
                     .listRowInsets(EdgeInsets(top: 10, leading: 6, bottom: 10, trailing: 6))
             }
             ForEach(listRows) { conversation in
@@ -48,11 +52,7 @@ struct ConversationListView: View {
                                 displayName: displayName(for: conversation),
                                 isTyping: model.typingConversationIDs.contains(conversation.id))
                     .tag(conversation.id)
-                    .contextMenu {
-                        Button("Delete Conversation", role: .destructive) {
-                            model.deleteThread(conversation.id)
-                        }
-                    }
+                    .contextMenu { menu(for: conversation) }
             }
         }
         .listStyle(.sidebar)
@@ -74,6 +74,25 @@ struct ConversationListView: View {
         }
         .sheet(isPresented: $showCompose) {
             ComposeView()
+        }
+    }
+
+    /// Right-click actions for a sidebar row.
+    ///
+    /// Acts on the whole selection only when the clicked row is part of it —
+    /// right-clicking outside a selection acts on the row under the cursor,
+    /// which is how Finder and Mail behave.
+    @ViewBuilder private func menu(for conversation: ConversationRecord) -> some View {
+        let selection = model.selectedConversationIDs
+        let actsOnSelection = selection.count > 1 && selection.contains(conversation.id)
+
+        Button(actsOnSelection ? "Delete \(selection.count) Conversations" : "Delete Conversation",
+               role: .destructive) {
+            if actsOnSelection {
+                model.deleteSelectedConversations()
+            } else {
+                model.deleteThread(conversation.id)
+            }
         }
     }
 
