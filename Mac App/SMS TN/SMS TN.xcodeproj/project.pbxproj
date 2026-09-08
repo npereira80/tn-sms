@@ -7,8 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		5BAA00023009853D0069E140 /* Gmbridge.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5BAA00013009853D0069E140 /* Gmbridge.xcframework */; };
-		5BAA00033009853D0069E140 /* Gmbridge.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 5BAA00013009853D0069E140 /* Gmbridge.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		5BAA00043009853D0069E140 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 5BAA00073009853D0069E140 /* GRDB */; };
 		AAF1700000000000000000AE /* OTPFill.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AAF1700000000000000000A1 /* OTPFill.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -30,7 +28,6 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				5BAA00033009853D0069E140 /* Gmbridge.xcframework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -50,7 +47,6 @@
 
 /* Begin PBXFileReference section */
 		52A69BE43009853D0069E140 /* SMS TN.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = "SMS TN.app"; path = Bubbles.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		5BAA00013009853D0069E140 /* Gmbridge.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = Gmbridge.xcframework; path = ../GmBridge/build/Gmbridge.xcframework; sourceTree = "<group>"; };
 		AAF1700000000000000000A1 /* OTPFill.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = OTPFill.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		AAF1700000000000000000A3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		AAF1700000000000000000A4 /* OTPFill.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OTPFill.entitlements; sourceTree = "<group>"; };
@@ -75,7 +71,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				5BAA00043009853D0069E140 /* GRDB in Frameworks */,
-				5BAA00023009853D0069E140 /* Gmbridge.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,7 +107,6 @@
 		5BAA00063009853D0069E140 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				5BAA00013009853D0069E140 /* Gmbridge.xcframework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";

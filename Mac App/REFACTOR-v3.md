@@ -1,6 +1,17 @@
-# Mac App Refactor — v2 (libgm) → v3 (server client)
+# Mac App Refactor: v2 (libgm) to v3 (server client)
 
-> **Status (implemented):** Read + text-send against the self-hosted server is done.
+> **Status: complete, and the old layer is gone (September 2026).** The
+> dormant libgm code described below was deleted in two commits: the wiring
+> first (`bridge`/`syncEngine` and everything guarding on them, plus the
+> pairing UI), then the files (`BridgeClient`, `GMEvent`, `ProtoModels`,
+> `SyncEngine`, the PJ-to-Record converters, `ParticipantRecord`), and
+> finally the `Gmbridge.xcframework` link and the GmBridge Go module.
+> Reactions survive as plain `ReactionEntry`/`ReactionData` in `Records.swift`.
+> The plan below is kept as the record of how the move was made; where it
+> says a file is "left in place but dormant", that is no longer true.
+> Attachment send from the Mac remains unimplemented.
+
+> **Status (as written then):** Read + text-send against the self-hosted server is done.
 > New files: `Server/ServerConfig.swift`, `Server/ServerModels.swift`, `Server/ServerClient.swift`.
 > `KeychainStore.serverToken` added; `AppDatabase.applyServerMessages(_:)` maps server
 > messages into the existing `conversation`/`message` tables; `AppModel` now registers,

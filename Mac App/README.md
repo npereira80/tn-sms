@@ -1,117 +1,93 @@
-# SMS TN — Mac Google Messages Client
+# Bubbles for Mac (SMS TN)
 
-Native macOS client for Google Messages, implementing
-`Mac-GMessages-Client-Specs-v2-Simplified.md` build-order steps 1-5:
-protocol layer (pairing + realtime receive), local offline store,
-conversation UI, send path, delta sync with hard-delete mirroring, and
-OTP detection. Browser extensions (steps 6-7) are a later phase; the
-OTP detection layer they will consume is already in place.
+Native macOS client for the self-hosted SMS sync server, with iMessage
+alongside it through BlueBubbles. SMS and MMS arrive from the Android
+phone via the server; iMessage is received directly from a BlueBubbles
+server; both render in one inbox.
+
+It began as a Google Messages client built on Beeper's `libgm`. That
+protocol layer was removed in September 2026 (see `REFACTOR-v3.md` and
+the "Google Messages" commits); nothing here speaks to Google any more.
 
 ## Architecture
 
 ```
-┌──────────────────────── SMS TN.app (Swift/SwiftUI) ───────────────────────┐
-│  UI (SwiftUI)  ←  AppModel (@Observable, MainActor)                       │
-│                     │            │              │                         │
-│               SyncEngine    OTPCenter      MediaStore (cache-all)         │
-│                     │                           │                         │
-│               AppDatabase (GRDB/SQLite mirror, no tombstones)             │
-│                     │                                                     │
-│               BridgeClient (async wrapper, AsyncStream of events)         │
-│                     │                                                     │
-│  Gmbridge.xcframework  ←  gomobile bind of GmBridge/ (Go)                 │
-│                     │                                                     │
-│  libgm (Beeper's reverse-engineered Google Messages web protocol)         │
-└───────────────────────────────────────────────────────────────────────────┘
-                       │  TLS (ATS fully enabled)
-              Google's servers  ←──  paired Android phone (stock Messages)
+┌───────────────────── Bubbles.app (Swift/SwiftUI) ────────────────────┐
+│  UI (SwiftUI)  ←  AppModel (@Observable, MainActor)                  │
+│                     │              │                                 │
+│                OTPCenter     MediaStore (cache-all)                  │
+│                     │              │                                 │
+│            AppDatabase (GRDB/SQLite mirror, no tombstones)           │
+│                     │                          │                     │
+│            ServerClient (REST + WebSocket)  BlueBubblesClient (poll) │
+└──────────────────────────────────────────────────────────────────────┘
+             │                                    │
+   SMS sync server (Mac mini)            BlueBubbles server
+             │
+   Android phone with the SIM
 ```
 
-Key decisions (from spec + kickoff):
+Key decisions:
 
-- **Protocol layer:** embeds `libgm` from mautrix-gmessages via gomobile,
-  pinned to a known-working commit (see `Scripts/build-gmbridge.sh`).
-  Rebuild with `--update` if Google changes the protocol and upstream
-  has adapted.
-- **Storage:** SQLite via GRDB. The local DB is a mirror of current
-  Google Messages state: deletions are hard-deleted, no archive
-  (spec §3.2). Dedup by protocol message ID with a
-  timestamp+sender+content-hash fallback.
-- **Media:** cache-all. Every attachment downloads at receive/sync time
-  into `~/Library/Containers/macDroid.SMS-TN/…/Application Support/SMS TN/Media`.
-- **Secrets:** pairing session lives in the macOS Keychain only. OTP
-  codes stay in memory and expire after 3 minutes.
+- **Transport:** REST for registration, history (`/delta`) and outbound
+  send (`/send`), plus a reconnecting WebSocket (`/stream`) surfaced as
+  an AsyncStream. A 60s delta poll runs alongside it so a dropped frame
+  cannot leave the Mac stale.
+- **Identity:** a number is keyed in one canonical form, full
+  international. The server defines it and every client mirrors it,
+  because the content hash built from it is how a delete on one device is
+  matched on another. See ADR-015 in the Android repo.
+- **Storage:** SQLite via GRDB. The local database mirrors current state:
+  deletions are hard deletes, with no archive (spec §3.2).
+- **Media:** cache-all. Every attachment downloads at sync time into
+  `~/Library/Containers/macDroid.SMS-TN/…/Application Support/SMS TN/Media`.
+- **Secrets:** the server token and the BlueBubbles password live in the
+  macOS Keychain only. OTP codes stay in memory and expire after three
+  minutes.
 
 ## Building
 
-Prerequisites: Xcode 26+, Go 1.25+ (`brew install go`).
+Prerequisites: Xcode 26+.
 
-1. Build the protocol framework (first time and after protocol updates):
+Open `Mac App/SMS TN/SMS TN.xcodeproj` and build. Xcode resolves the GRDB
+package on first open. There is no longer a framework to build first.
 
-   ```bash
-   cd "Mac App/Scripts"
-   ./build-gmbridge.sh
-   ```
+On first run, sign in with the email on your sync server account. The
+code is delivered as an SMS to the phone holding the SIM, and history
+imports straight after.
 
-   This produces `Mac App/GmBridge/build/Gmbridge.xcframework`, which the
-   Xcode project already references.
+## Sync behaviour
 
-2. Open `Mac App/SMS TN/SMS TN.xcodeproj` and build/run. Xcode resolves
-   the GRDB package on first open.
+- **Realtime:** new messages, read state and deletions arrive on the
+  WebSocket while the app is open.
+- **Delta poll:** every 60 seconds the app re-pulls `/delta` from its
+  cursor, which also carries the full read-state snapshot, so it
+  converges even after a missed event. ⌘R forces a pull.
+- **Deletes:** deleting on the Mac removes the message from the server
+  and broadcasts a tombstone to the other clients. It does not touch the
+  phone's own SMS store, which keeps its copy.
+- **Offline:** the local copy is readable with no network. The app opens
+  straight into `ready` and connects in the background.
 
-3. On first run, scan the QR code with Google Messages on the phone
-   (profile picture → Device pairing). Initial full-history import runs
-   after pairing; progress shows in the window banner.
+## Known limitations
 
-If the Swift compiler reports a signature mismatch against the
-generated `Gmbridge` module (gomobile occasionally shifts parameter
-labels between versions), check the generated header:
-`Gmbridge.xcframework/macos-*/Gmbridge.framework/Headers/Gmbridge.objc.h`
-and adjust the call in `GMessages/BridgeClient.swift` accordingly.
-
-## Sync behavior (spec §3.2)
-
-- **Realtime:** messages arrive over libgm's long-poll while the phone
-  is on and connected; they are upserted by message ID (never
-  duplicated).
-- **Reconnect delta:** on every successful connect, the conversation
-  list is mirrored (conversations deleted remotely are hard-deleted
-  locally, cascading), and each conversation's recent window (last
-  synced timestamp minus 7 days) is reconciled: new remote messages
-  imported, local messages missing remotely hard-deleted.
-- **Deep verify:** the web protocol does not push realtime deletion
-  events, so a full-history reconciliation ("Verify Full Sync" in the
-  app menu) walks every conversation and removes anything deleted
-  remotely. It runs automatically as the initial import after pairing.
-- **Offline:** the full local copy is readable with no network; the app
-  opens straight into `ready` state and connects in the background.
-
-## Known limitations (accepted, spec §4)
-
-1. Phone off/offline → nothing flows (protocol relays through phone).
-2. Unofficial protocol; Google can break it. Mitigation: pinned libgm
-   commit + `--update` rebuild path.
-3. Single Mac client, one paired phone.
+1. Phone off or offline means nothing new flows: it holds the SIM.
+2. Sending attachments from the Mac is not implemented. The app says so
+   rather than appearing to send. Receiving them works.
+3. Reactions render but nothing writes them since the Google protocol
+   went away. BlueBubbles tapbacks would be the way back in.
 4. Deleted messages are not archived, by design.
-5. Older deletions are mirrored on deep verify (menu/post-pairing pass),
-   not on every reconnect; recent-window deletions mirror every
-   reconnect.
 
 ## Layout
 
 ```
 Mac App/
-├── GmBridge/                 Go module wrapping libgm (gomobile API)
-│   ├── bridge.go             client calls (pairing, list, send, media)
-│   └── events.go             libgm events → JSON for Swift
-├── Scripts/build-gmbridge.sh xcframework build (pinned protocol commit)
 └── SMS TN/                   Xcode project
     └── SMS TN/
-        ├── SMS_TNApp.swift   entry, notification actions
-        ├── AppModel.swift    coordinator: events, send path, state
-        ├── GMessages/        BridgeClient, GMEvent, ProtoModels, Keychain
-        ├── Store/            AppDatabase (GRDB), Records, MediaStore
-        ├── Sync/SyncEngine.swift
+        ├── SMS_TNApp.swift   entry, menu commands, notification actions
+        ├── AppModel.swift    coordinator: sync, send path, selection, state
+        ├── Server/           ServerClient, BlueBubblesClient, models
+        ├── Store/            AppDatabase (GRDB), Records, MediaStore, Keychain
         ├── OTP/OTPCenter.swift
-        └── UI/               Root/Pairing/ConversationList/Thread views
+        └── UI/               Root/ConversationList/Thread/Compose views
 ```
