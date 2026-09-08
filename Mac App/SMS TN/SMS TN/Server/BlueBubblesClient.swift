@@ -77,6 +77,22 @@ nonisolated enum BBAddress {
         let plus = t.hasPrefix("+") ? "+" : ""
         return plus + t.filter { $0.isNumber }
     }
+
+    /// A key that's the same for one number however it was formatted: the last
+    /// nine significant digits.
+    ///
+    /// [normalize] keeps the leading "+", so the same person is a different
+    /// conversation depending on whether the carrier delivered a national or an
+    /// international address — "916309003" one way and "+351916309003" the
+    /// other. Nine digits is enough to identify a subscriber within a country
+    /// and short enough to survive the country code being present or absent.
+    ///
+    /// Empty for alphanumeric senders and emails, which have no digits, so
+    /// callers must not match on an empty key — every one of them would collide.
+    static func matchKey(_ addr: String) -> String {
+        let digits = addr.filter(\.isNumber)
+        return digits.count > 9 ? String(digits.suffix(9)) : digits
+    }
 }
 
 // MARK: - Client

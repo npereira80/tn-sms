@@ -164,6 +164,30 @@ nonisolated final class AppDatabase: Sendable {
         }
     }
 
+    /// Existing conversations keyed by [BBAddress.matchKey], for resolving an
+    /// address to the thread it already belongs to.
+    ///
+    /// Where two rows share a key — the state this is meant to stop happening —
+    /// the one with the most recent activity wins, so ingest converges on the
+    /// thread actually in use rather than flip-flopping between them.
+    static func conversationsByMatchKey(_ db: Database) throws -> [String: String] {
+        let rows = try Row.fetchAll(
+            db,
+            sql: """
+            SELECT id, primaryNumber FROM conversation
+            ORDER BY lastMessageTimestamp ASC
+            """)
+        var map: [String: String] = [:]
+        for row in rows {
+            let id: String = row["id"]
+            let number: String? = row["primaryNumber"]
+            let key = BBAddress.matchKey(number ?? id)
+            guard !key.isEmpty else { continue }
+            map[key] = id      // ascending order, so the newest row overwrites
+        }
+        return map
+    }
+
     /// Create (or fetch) the SMS conversation for a normalized address, so a
     /// thread can be started before any message exists in it.
     ///
@@ -173,6 +197,14 @@ nonisolated final class AppDatabase: Sendable {
     func ensureSmsConversation(id: String, address: String) async throws -> ConversationRecord {
         try await pool.write { db in
             if let existing = try ConversationRecord.fetchOne(db, key: id) { return existing }
+            // Also match on significant digits, so composing to a national
+            // number reuses the thread created from an international one.
+            let key = BBAddress.matchKey(address)
+            if !key.isEmpty,
+               let existingID = try Self.conversationsByMatchKey(db)[key],
+               let existing = try ConversationRecord.fetchOne(db, key: existingID) {
+                return existing
+            }
             let record = ConversationRecord(
                 id: id, name: "", lastMessageTimestamp: Int64(Date().timeIntervalSince1970 * 1_000_000),
                 unread: false, isGroupChat: false, defaultOutgoingID: address, status: "ACTIVE",
@@ -300,8 +332,21 @@ nonisolated final class AppDatabase: Sendable {
     func applyServerMessages(_ messages: [ServerMessage]) async throws {
         guard !messages.isEmpty else { return }
         try await pool.write { db in
+            // Existing threads indexed by significant digits, so a number that
+            // arrives in a different format than last time lands in the thread
+            // it already has rather than starting a second one.
+            //
+            // This is where the split actually happened: the server keys a
+            // conversation on the address as received, so sending to
+            // "916309003" and getting the reply back as "+351916309003" — which
+            // is what the carrier does — produced two rows for one person.
+            var threadsByNumber = try Self.conversationsByMatchKey(db)
+
             for m in messages {
-                let convID = m.conversationId.isEmpty ? m.address : m.conversationId
+                let serverID = m.conversationId.isEmpty ? m.address : m.conversationId
+                let matchKey = BBAddress.matchKey(m.address)
+                let convID = matchKey.isEmpty ? serverID : (threadsByNumber[matchKey] ?? serverID)
+                if !matchKey.isEmpty { threadsByNumber[matchKey] = convID }
                 let tsMicros = m.ts * 1000
                 let isMe = (m.direction == "out")
 
@@ -349,10 +394,19 @@ nonisolated final class AppDatabase: Sendable {
     /// Store iMessage messages from the BlueBubbles server into a conversation
     /// keyed by the participant's normalized address, so they merge with that
     /// contact's SMS thread. Each row is tagged service="iMessage" for colouring.
-    func applyBBMessages(conversationID convID: String, address: String,
+    func applyBBMessages(conversationID requestedID: String, address: String,
                          displayName: String?, _ messages: [BBMessage]) async throws {
         guard !messages.isEmpty else { return }
         try await pool.write { db in
+            // Merge into the contact's existing thread whatever format their
+            // iMessage handle arrived in — the whole point of keying these on
+            // the phone number is that SMS and iMessage share one conversation,
+            // and that fails if one side is national and the other isn't.
+            let key = BBAddress.matchKey(address)
+            let convID = key.isEmpty
+                ? requestedID
+                : (try Self.conversationsByMatchKey(db)[key] ?? requestedID)
+
             for m in messages {
                 let tsMicros = (m.dateCreated ?? 0) * 1000
                 let isMe = m.isFromMe ?? false

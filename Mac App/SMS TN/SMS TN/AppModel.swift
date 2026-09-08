@@ -843,16 +843,16 @@ final class AppModel {
         // id alone therefore created a second thread for someone already in the
         // list. Compared on significant digits instead, which is how contacts
         // are already matched to numbers.
-        // An alphanumeric sender ("Google", "CGD") has no digits and normalizes
-        // to "", so an empty key must never be used for matching — it would
-        // collide with every other letters-only sender.
-        let key = ContactsService.normalize(address)
+        // An alphanumeric sender ("Google", "CGD") has no digits and so has an
+        // empty key, which must never be used for matching — every one of them
+        // would collide.
+        let key = BBAddress.matchKey(address)
         let record: ConversationRecord
         if let existing = conversations.first(where: {
             let candidate = $0.primaryNumber ?? $0.id
             return key.isEmpty
                 ? candidate == address
-                : ContactsService.normalize(candidate) == key
+                : BBAddress.matchKey(candidate) == key
         }) {
             record = existing
             log.info("Composing into existing conversation \(record.id, privacy: .public)")

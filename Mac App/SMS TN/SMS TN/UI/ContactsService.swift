@@ -75,11 +75,12 @@ final class ContactsService {
 
     /// Normalizes a phone number to its last 9 significant digits so
     /// local/international formatting variations still match.
+    ///
+    /// Delegates to [BBAddress.matchKey] so contact matching and conversation
+    /// matching use one rule. They were separate implementations of the same
+    /// idea, which is how a number could resolve to the right contact while
+    /// still landing in a second thread.
     nonisolated static func normalize(_ raw: String) -> String {
-        let digits = raw.filter(\.isNumber)
-        if digits.count > 9 {
-            return String(digits.suffix(9))
-        }
-        return digits
+        BBAddress.matchKey(raw)
     }
 }
