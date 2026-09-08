@@ -36,6 +36,18 @@ struct SMS_TNApp: App {
                 .disabled(model.phase != .ready)
             }
             CommandGroup(after: .appSettings) {
+                // Refresh now rather than waiting out the 60s poll. Distinct
+                // from "Reset & Re-sync from Server" below, which wipes the
+                // local mirror — that stays menu-only, since a shortcut this
+                // easy to hit shouldn't be able to trigger a repair.
+                Button("Refresh") {
+                    model.refreshNow()
+                }
+                .keyboardShortcut("r", modifiers: .command)
+                .disabled(model.phase != .ready || model.syncRunning)
+
+                Divider()
+
                 Button("iMessage (BlueBubbles) Settings…") {
                     model.showBBSettings = true
                 }

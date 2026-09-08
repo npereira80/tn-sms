@@ -277,19 +277,46 @@ final class AppModel {
         while !Task.isCancelled {
             try? await Task.sleep(for: .seconds(60))
             if Task.isCancelled { break }
-            do {
-                let since = Int64((try? await db.kvGet("serverCursor")) ?? "") ?? 0
-                let delta = try await server.fetchDelta(since: since)
-                try await db.applyServerMessages(delta.messages)
-                if let states = delta.conversations {
-                    try? await db.applyConversationReadStates(states.map { ($0.id, $0.unread != 0) })
-                }
-                await applyServerDeletions(delta.deletions ?? [], db: db)
-                await mediaStore?.drainQueue()
-                if delta.cursor > since { try? await db.kvSet("serverCursor", String(delta.cursor)) }
-            } catch {
-                log.error("Periodic delta refresh failed: \(error.localizedDescription, privacy: .public)")
+            await pullDelta(server: server, db: db, reason: "periodic")
+        }
+    }
+
+    /// One pass of the cursor-based delta: new messages, read states, deletions
+    /// and any queued media. Shared by the 60s timer and the manual refresh, so
+    /// ⌘R does exactly what waiting would have done, just now.
+    private func pullDelta(server: ServerClient, db: AppDatabase, reason: String) async {
+        do {
+            let since = Int64((try? await db.kvGet("serverCursor")) ?? "") ?? 0
+            let delta = try await server.fetchDelta(since: since)
+            try await db.applyServerMessages(delta.messages)
+            if let states = delta.conversations {
+                try? await db.applyConversationReadStates(states.map { ($0.id, $0.unread != 0) })
             }
+            await applyServerDeletions(delta.deletions ?? [], db: db)
+            await mediaStore?.drainQueue()
+            if delta.cursor > since { try? await db.kvSet("serverCursor", String(delta.cursor)) }
+        } catch {
+            log.error("Delta refresh (\(reason, privacy: .public)) failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Refresh now (⌘R) instead of waiting for the next scheduled pass.
+    ///
+    /// Deliberately not the same as "Reset & Re-sync from Server", which wipes
+    /// the local mirror and re-pulls everything — that's a repair tool, and
+    /// hanging it off a shortcut this easy to hit would be a trap.
+    ///
+    /// Also nudges a dead socket, since a manual refresh is usually the reaction
+    /// to noticing the Mac has gone quiet, and pulls iMessage if configured so
+    /// one shortcut refreshes everything the list shows.
+    func refreshNow() {
+        guard let server, let db, !syncRunning else { return }
+        syncRunning = true
+        Task {
+            await pullDelta(server: server, db: db, reason: "manual")
+            if connectionState != .connected { retryConnect() }
+            startBlueBubblesSync()
+            syncRunning = false
         }
     }
 
