@@ -164,6 +164,24 @@ nonisolated final class AppDatabase: Sendable {
         }
     }
 
+    /// This phone's own number, as Google Messages reported it on any
+    /// conversation, or nil if it never has.
+    ///
+    /// The only trustworthy source of the account's country: the Mac's locale
+    /// describes the person's language settings rather than their carrier, so a
+    /// Portuguese line on a Mac set to English would read as US.
+    func myPhoneNumber() async throws -> String? {
+        try await pool.read { db in
+            try String.fetchOne(
+                db,
+                sql: """
+                SELECT number FROM participant
+                WHERE isMe = 1 AND number IS NOT NULL AND number <> ''
+                LIMIT 1
+                """)
+        }
+    }
+
     func deleteConversations(ids: [String]) async throws {
         guard !ids.isEmpty else { return }
         _ = try await pool.write { db in

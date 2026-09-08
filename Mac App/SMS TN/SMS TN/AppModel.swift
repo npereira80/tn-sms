@@ -740,28 +740,93 @@ final class AppModel {
     }
 
     /// Starts (or opens) a conversation for the given phone numbers and
-    /// optionally sends a first message. Returns true on success.
-    @discardableResult
-    func startNewConversation(numbers: [String], message: String) async -> Bool {
-        guard let bridge, let db else { return false }
-        let cleaned = numbers.map { $0.trimmingCharacters(in: .whitespaces) }
+    /// optionally sends a first message.
+    ///
+    /// Throws rather than returning a Bool so the composer can show what
+    /// actually went wrong. It previously swallowed the error and offered a
+    /// guess ("check the number and that your phone is connected"), which named
+    /// neither the real cause nor anything actionable.
+    func startNewConversation(numbers: [String], message: String) async throws {
+        guard let bridge, let db else {
+            throw ComposeError.notConnected
+        }
+        let countryCode = await callingCodeOfThisLine()
+        let cleaned = numbers
+            .map { dialable($0, countryCode: countryCode) }
             .filter { !$0.isEmpty }
-        guard !cleaned.isEmpty else { return false }
-        do {
-            let pj = try await bridge.startConversation(numbers: cleaned)
-            try await db.upsertConversation(pj)
-            let record = ConversationRecord.from(pj)
-            selectConversation(record.id)
-            let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                await sendText(trimmed, to: record)
-            }
-            return true
-        } catch {
-            log.error("Start conversation failed: \(error.localizedDescription, privacy: .public)")
-            return false
+        guard !cleaned.isEmpty else { throw ComposeError.noRecipient }
+
+        log.info("Starting conversation with \(cleaned.joined(separator: ","), privacy: .public)")
+        let pj = try await bridge.startConversation(numbers: cleaned)
+        try await db.upsertConversation(pj)
+        let record = ConversationRecord.from(pj)
+        selectConversation(record.id)
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            await sendText(trimmed, to: record)
         }
     }
+
+    enum ComposeError: LocalizedError {
+        case notConnected
+        case noRecipient
+
+        var errorDescription: String? {
+            switch self {
+            case .notConnected: return "Not connected to your phone yet."
+            case .noRecipient: return "Enter a phone number."
+            }
+        }
+    }
+
+    /// A number in the form the phone expects: E.164 when the country is known,
+    /// otherwise exactly as typed.
+    ///
+    /// A national number like "928392735" has no meaning without a country, and
+    /// the bridge passes whatever it's given straight through to Google
+    /// Messages. Left alone when [countryCode] is nil, because sending it
+    /// unchanged is recoverable while prefixing the wrong country is not.
+    private func dialable(_ raw: String, countryCode: String?) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty || trimmed.hasPrefix("+") { return trimmed }
+        // Short codes and alphanumeric senders aren't dialable numbers.
+        if trimmed.rangeOfCharacter(from: .letters) != nil { return trimmed }
+        let digits = trimmed.filter { $0.isNumber }
+        // Below this a number is a short code, which must not be prefixed.
+        if digits.count < 7 { return trimmed }
+        guard let countryCode else { return trimmed }
+        return "+\(countryCode)\(digits)"
+    }
+
+    /// The calling code of the SIM this Mac is paired to, from the phone's own
+    /// number as Google Messages reported it. Nil if it never did.
+    private func callingCodeOfThisLine() async -> String? {
+        guard let db else { return nil }
+        guard let mine = try? await db.myPhoneNumber(), let mine else { return nil }
+        let digits = mine.hasPrefix("+")
+            ? String(mine.dropFirst()).filter { $0.isNumber }
+            : mine.filter { $0.isNumber }
+        guard digits.count > 8 else { return nil }
+        // Longest first, so "351" isn't read as "35".
+        for length in [3, 2, 1] where digits.count > length {
+            let candidate = String(digits.prefix(length))
+            if Self.knownCallingCodes.contains(candidate) { return candidate }
+        }
+        return nil
+    }
+
+    /// Enough calling codes to resolve the prefix of a known own-number.
+    /// Deliberately not exhaustive: an unrecognised prefix means the typed
+    /// number is left alone, which is the safe outcome.
+    private static let knownCallingCodes: Set<String> = [
+        "1", "7", "20", "27", "30", "31", "32", "33", "34", "36", "39", "40", "41", "43", "44",
+        "45", "46", "47", "48", "49", "51", "52", "53", "54", "55", "56", "57", "58", "60", "61",
+        "62", "63", "64", "65", "66", "81", "82", "84", "86", "90", "91", "92", "93", "94", "95",
+        "98", "351", "352", "353", "354", "355", "356", "357", "358", "359", "370", "371", "372",
+        "373", "374", "375", "376", "377", "378", "380", "381", "382", "383", "385", "386", "387",
+        "389", "420", "421", "423", "852", "853", "855", "856", "880", "886", "971", "972", "974",
+        "977",
+    ]
 
     func sendAttachment(fileURL: URL, caption: String) async {
         do {

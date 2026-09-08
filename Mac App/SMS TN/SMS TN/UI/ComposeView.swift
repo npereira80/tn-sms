@@ -72,12 +72,16 @@ struct ComposeView: View {
         sending = true
         errorText = nil
         Task {
-            let ok = await model.startNewConversation(numbers: [recipient], message: message)
-            sending = false
-            if ok {
+            do {
+                try await model.startNewConversation(numbers: [recipient], message: message)
+                sending = false
                 dismiss()
-            } else {
-                errorText = "Could not start the conversation. Check the number and that your phone is connected."
+            } catch {
+                sending = false
+                // The underlying reason, not a guess at it. The previous message
+                // named two possible causes and showed neither, so a wrong
+                // number and a dead bridge looked identical.
+                errorText = error.localizedDescription
             }
         }
     }
