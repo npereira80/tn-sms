@@ -131,33 +131,6 @@ nonisolated final class AppDatabase: Sendable {
 
     // MARK: - Conversations
 
-    func upsertConversation(_ pj: PJConversation) async throws {
-        let record = ConversationRecord.from(pj)
-        let participants = (pj.participants ?? [])
-            .compactMap { ParticipantRecord.from($0, conversationID: pj.conversationID) }
-        try await pool.write { db in
-            // DELETED conversations are removed outright: the local store
-            // mirrors current state (spec §3.2).
-            if record.status == "DELETED" || record.status == "SPAM_FOLDER" || record.status == "BLOCKED_FOLDER" {
-                _ = try ConversationRecord.deleteOne(db, key: record.id)
-                return
-            }
-            var toSave = record
-            if let existing = try ConversationRecord.fetchOne(db, key: record.id) {
-                toSave.lastSyncedMessageTimestamp = existing.lastSyncedMessageTimestamp
-            }
-            try toSave.save(db)
-            if !participants.isEmpty {
-                try ParticipantRecord
-                    .filter(Column("conversationID") == record.id)
-                    .deleteAll(db)
-                for participant in participants {
-                    try participant.save(db)
-                }
-            }
-        }
-    }
-
     func conversationIDs() async throws -> Set<String> {
         try await pool.read { db in
             Set(try String.fetchAll(db, sql: "SELECT id FROM conversation"))
@@ -247,15 +220,6 @@ nonisolated final class AppDatabase: Sendable {
         }
     }
 
-    func myParticipantIDs(conversationID: String) async throws -> Set<String> {
-        try await pool.read { db in
-            Set(try String.fetchAll(
-                db,
-                sql: "SELECT participantID FROM participant WHERE conversationID = ? AND isMe = 1",
-                arguments: [conversationID]))
-        }
-    }
-
     func setLastSyncedMessageTimestamp(conversationID: String, timestamp: Int64) async throws {
         try await pool.write { db in
             try db.execute(
@@ -266,54 +230,10 @@ nonisolated final class AppDatabase: Sendable {
 
     // MARK: - Messages
 
-    /// Inserts or updates a message plus its media rows.
-    /// Dedup: primary key is the protocol message ID (or fallback hash).
-    /// If the message carries a tmpID matching an optimistic local row,
-    /// that row is replaced (spec §3.2 dedup on import).
-    func upsertMessage(_ pj: PJMessage, myParticipantIDs: Set<String>) async throws {
-        guard var record = MessageRecord.from(pj, myParticipantIDs: myParticipantIDs) else { return }
-        let mediaRecords = pj.mediaParts.compactMap { MediaRecord.from($0, messageID: record.id) }
-        try await pool.write { db in
-            if let tmpID = record.tmpID, !tmpID.isEmpty {
-                try MessageRecord
-                    .filter(Column("tmpID") == tmpID && Column("pendingSend") == true)
-                    .deleteAll(db)
-            }
-            record.pendingSend = false
-            try record.save(db)
-            for media in mediaRecords {
-                if var existing = try MediaRecord.fetchOne(
-                    db, key: ["messageID": media.messageID, "mediaID": media.mediaID]) {
-                    // Keep local download state; refresh keys/metadata.
-                    existing.mimeType = media.mimeType ?? existing.mimeType
-                    existing.decryptionKey = media.decryptionKey ?? existing.decryptionKey
-                    existing.thumbnailMediaID = media.thumbnailMediaID ?? existing.thumbnailMediaID
-                    existing.thumbnailDecryptionKey = media.thumbnailDecryptionKey ?? existing.thumbnailDecryptionKey
-                    try existing.save(db)
-                } else {
-                    try media.save(db)
-                }
-            }
-            // Bump the conversation summary for realtime arrivals.
-            if let conv = try ConversationRecord.fetchOne(db, key: record.conversationID),
-               record.timestamp >= conv.lastMessageTimestamp {
-                try db.execute(
-                    sql: """
-                        UPDATE conversation
-                        SET lastMessageTimestamp = ?, snippet = ?
-                        WHERE id = ?
-                        """,
-                    arguments: [record.timestamp,
-                                record.textContent.isEmpty ? conv.snippet : record.textContent,
-                                record.conversationID])
-            }
-        }
-    }
-
-    // MARK: - v3 server sync
+    // MARK: - Server sync
 
     /// Clears the local mirror so only server-sourced data remains. Used for
-    /// the one-time migration off the v2 (Google-synced) store and for a
+    /// the one-time migration off the old Google-synced store and for a
     /// manual "Reset & Re-sync". Server delta then re-pulls full history.
     func resetAll() async throws {
         try await pool.write { db in
@@ -487,24 +407,6 @@ nonisolated final class AppDatabase: Sendable {
         }
     }
 
-    /// After the bridge send call returns, record the server tmpID on the
-    /// optimistic row so the incoming echo event replaces it (dedup).
-    func updatePendingTmpID(localID: String, tmpID: String) async throws {
-        try await pool.write { db in
-            try db.execute(
-                sql: "UPDATE message SET tmpID = ?, status = 'OUTGOING_COMPLETE' WHERE id = ? AND pendingSend = 1",
-                arguments: [tmpID, localID])
-        }
-    }
-
-    /// Wipes all local data (used on explicit unpair).
-    func wipe() async throws {
-        try await pool.write { db in
-            try db.execute(sql: "DELETE FROM conversation")
-            try db.execute(sql: "DELETE FROM kv")
-        }
-    }
-
     func deleteMessages(ids: [String]) async throws {
         guard !ids.isEmpty else { return }
         _ = try await pool.write { db in
@@ -625,15 +527,6 @@ nonisolated final class AppDatabase: Sendable {
                         (SELECT MAX(m2.timestamp) FROM message m2
                           WHERE m2.conversationID = m.conversationID AND m2.isFromMe = 1), 0)
                 """) ?? 0
-        }
-    }
-
-    func latestMessage(conversationID: String) async throws -> MessageRecord? {
-        try await pool.read { db in
-            try MessageRecord
-                .filter(Column("conversationID") == conversationID)
-                .order(Column("timestamp").desc)
-                .fetchOne(db)
         }
     }
 

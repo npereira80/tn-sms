@@ -2,10 +2,9 @@
 //  ServerClient.swift
 //  SMS TN
 //
-//  v3 transport: talks to the self-hosted SMS Sync server instead of Google.
-//  REST for registration + history (/delta) + outbound send (/send), and a
+//  The app's data source: the self-hosted SMS Sync server. REST for
+//  registration, history (/delta) and outbound send (/send), plus a
 //  reconnecting WebSocket (/stream) surfaced as an AsyncStream of events.
-//  Replaces the libgm BridgeClient as the app's data source.
 //
 
 import Foundation
